@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import Calendar from '../components/Calendar';
@@ -6,7 +6,9 @@ import Schedule from '../components/Schedule';
 import FloatingActionButton from '../components/FloatingActionButton';
 import Sidebar from '../components/Sidebar';
 import EventListModal from '../components/EventListModal';
+import NotificationsModal from '../components/NotificationsModal';
 import { useAuth } from '../context/AuthContext';
+import { dataService } from '../services/dataService';
 
 function CalendarPage() {
   const { user, signOut } = useAuth();
@@ -14,6 +16,36 @@ function CalendarPage() {
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+
+  // Fetch notifications
+  useEffect(() => {
+    if (user) {
+      loadNotifications();
+    }
+  }, [user]);
+
+  const loadNotifications = async () => {
+    try {
+      const data = await dataService.getNotifications(user.id);
+      setNotifications(data);
+    } catch (error) {
+      console.error("Error loading notifications:", error);
+    }
+  };
+
+  const handleRespondNotification = async (notificationId, accept) => {
+    try {
+      await dataService.respondToFamilyRequest(notificationId, user.id, accept);
+      // Refresh notifications
+      loadNotifications();
+      // If accepted, we might want to refresh user data or context, but usually that happens on next load or via context update.
+      // For now, just refreshing notifications is enough to remove it from the list.
+    } catch (error) {
+      console.error("Error responding to notification:", error);
+    }
+  };
 
   // Initialize state from sessionStorage if available to preserve context on back navigation
   const [selectedDay, setSelectedDay] = useState(() => {
@@ -42,6 +74,15 @@ function CalendarPage() {
     return new Date();
   });
 
+  const [selectedMemberId, setSelectedMemberId] = useState(user?.id);
+
+  // Update selectedMemberId if user changes (e.g. initial load)
+  useEffect(() => {
+    if (user && !selectedMemberId) {
+      setSelectedMemberId(user.id);
+    }
+  }, [user]);
+
   // Save state to sessionStorage whenever it changes
   useEffect(() => {
     sessionStorage.setItem('calendarState', JSON.stringify({
@@ -50,7 +91,10 @@ function CalendarPage() {
     }));
   }, [selectedDay, currentDate]);
 
-  const currentUserId = user.id;
+  const currentUserId = selectedMemberId || user?.id;
+  
+  // Check permission: Owner OR Authorized Editor
+  const canEdit = currentUserId === user?.id || (user && dataService.canEdit(currentUserId, user.id));
 
   const handlePrevMonth = (arg) => {
     // If arg is a number (day), use it; otherwise (e.g. event object), treat as null
@@ -66,9 +110,21 @@ function CalendarPage() {
     setSelectedDay(dayToSelect);
   };
 
+  const scheduleRef = useRef(null);
+
+  useEffect(() => {
+    if (selectedDay && scheduleRef.current) {
+      scheduleRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedDay]);
+
   const handleEventSelect = (event) => {
     // Navigate to event details page
-    navigate(`/event/${event.id}`);
+    // Pass the event's owner ID (event.user_id) to ensure we can find the event 
+    // even if it is shared (not owned by the current viewer)
+    navigate(`/event/${event.id}`, {
+      state: { userId: event.user_id || currentUserId }
+    });
   };
 
   const handleDaySelect = (day) => {
@@ -82,14 +138,13 @@ function CalendarPage() {
 
   const handleCreateEvent = () => {
     // Navigate to create event page
-    // Pass current selection state via URL params or state if needed, 
-    // but for now let's just use query params or assume defaults in the new page
-    // We can pass state in navigate
+    // Pass current selection state via URL params or state if needed
     navigate('/event/new', { 
       state: { 
         selectedDay,
-        currentDate: currentDate.toISOString() 
-      } 
+        currentDate: currentDate.toISOString(),
+        userId: currentUserId
+      }
     });
   };
 
@@ -118,6 +173,16 @@ function CalendarPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setIsNotificationsOpen(true)}
+            title="Notificaciones"
+            className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors relative"
+          >
+            <span className="material-symbols-outlined text-xl">notifications</span>
+            {notifications.length > 0 && (
+              <span className="absolute top-0 right-0 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-800"></span>
+            )}
+          </button>
+          <button
             onClick={() => navigate('/profile')}
             title="Mi Perfil"
             className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
@@ -130,9 +195,13 @@ function CalendarPage() {
       <Header 
         currentDate={currentDate} 
         onMenuClick={() => setIsMenuOpen(true)}
+        selectedMemberId={selectedMemberId}
+        onMemberSelect={setSelectedMemberId}
+        onNotificationsClick={() => setIsNotificationsOpen(true)}
+        notificationCount={notifications.length}
       />
       
-      <div className="flex-1 overflow-y-auto pb-24">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden relative" id="calendar-container">
         <Calendar 
             selectedDay={selectedDay}
             onDaySelect={handleDaySelect}
@@ -143,17 +212,19 @@ function CalendarPage() {
             userId={currentUserId}
           />
         <div className="h-px bg-slate-200 dark:bg-slate-800 mx-4 mb-4"></div>
-        <Schedule 
-          selectedDay={selectedDay} 
-          currentDate={currentDate}
-          onEventSelect={handleEventSelect}
-          userId={currentUserId}
-          onClearSelection={() => setSelectedDay(null)}
-        />
+        <div ref={scheduleRef}>
+          <Schedule 
+            selectedDay={selectedDay} 
+            currentDate={currentDate}
+            onEventSelect={handleEventSelect}
+            userId={currentUserId}
+            onClearSelection={() => setSelectedDay(null)}
+          />
+        </div>
         <div className="h-8"></div>
       </div>
-
-      <FloatingActionButton onClick={handleCreateEvent} />
+      
+      {canEdit && <FloatingActionButton onClick={handleCreateEvent} />}
 
       {!isCurrentMonth && (
         <div className="fixed bottom-6 left-6 z-50">
@@ -175,7 +246,14 @@ function CalendarPage() {
         currentDate={currentDate}
         onEventSelect={handleEventSelect}
         userId={currentUserId}
-        onCreateEvent={handleCreateEvent}
+        onCreateEvent={canEdit ? handleCreateEvent : null}
+      />
+
+      <NotificationsModal 
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notifications={notifications}
+        onRespond={handleRespondNotification}
       />
     </div>
   )

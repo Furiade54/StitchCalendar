@@ -18,8 +18,8 @@ const SettingsPage = () => {
       label: 'Notificaciones',
       icon: 'notifications',
       description: 'Gestiona tus alertas y recordatorios',
-      path: '#',
-      color: 'text-orange-500 bg-orange-100 dark:bg-orange-900/30'
+      path: '/notifications',
+      color: 'text-primary bg-primary/10'
     },
     {
       id: 'appearance',
@@ -27,7 +27,7 @@ const SettingsPage = () => {
       icon: 'palette',
       description: 'Temas, colores y diseño',
       path: '/appearance',
-      color: 'text-purple-500 bg-purple-100 dark:bg-purple-900/30'
+      color: 'text-primary bg-primary/10'
     },
     {
       id: 'account',
@@ -35,7 +35,7 @@ const SettingsPage = () => {
       icon: 'person',
       description: 'Información de perfil y seguridad',
       path: '/profile',
-      color: 'text-blue-500 bg-blue-100 dark:bg-blue-900/30'
+      color: 'text-primary bg-primary/10'
     }
   ];
 

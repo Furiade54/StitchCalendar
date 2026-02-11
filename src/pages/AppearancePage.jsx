@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme, THEMES } from '../hooks/useTheme';
+import { getHexLuminance, getContrastRatio } from '../utils/colorUtils';
 
 const AppearancePage = () => {
   const navigate = useNavigate();
@@ -15,6 +16,20 @@ const AppearancePage = () => {
     updateCustomBackgroundColor,
     resetCustomBackgroundColor
   } = useTheme();
+
+  // Contrast Calculations
+  const bgHex = customBackgroundColor || (theme === 'dark' ? '#111418' : '#f6f7f8');
+  const primaryLum = getHexLuminance(customColor);
+  const bgLum = getHexLuminance(bgHex);
+  const contrast = getContrastRatio(primaryLum, bgLum);
+  
+  const isLowContrast = contrast < 3; // UI components needs 3:1
+  
+  // Text visibility on background
+  const textHex = theme === 'light' ? '#0f172a' : '#ffffff';
+  const textLum = getHexLuminance(textHex);
+  const bgTextContrast = getContrastRatio(textLum, bgLum);
+  const isBgLowContrast = bgTextContrast < 4.5; // Text needs 4.5:1
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark transition-colors duration-300">
@@ -43,22 +58,22 @@ const AppearancePage = () => {
               onClick={() => theme === 'dark' && toggleTheme()}
               className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
                 theme === 'light' 
-                  ? 'bg-white text-slate-900 shadow-sm' 
+                  ? 'bg-white text-slate-900 shadow-sm ring-1 ring-primary' 
                   : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
               }`}
             >
-              <span className="material-symbols-outlined text-[20px]">light_mode</span>
+              <span className={`material-symbols-outlined text-[20px] ${theme === 'light' ? 'text-primary filled-icon' : ''}`}>light_mode</span>
               Claro
             </button>
             <button
               onClick={() => theme === 'light' && toggleTheme()}
               className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
                 theme === 'dark' 
-                  ? 'bg-slate-700 text-white shadow-sm' 
+                  ? 'bg-slate-700 text-white shadow-sm ring-1 ring-primary' 
                   : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
               }`}
             >
-              <span className="material-symbols-outlined text-[20px]">dark_mode</span>
+              <span className={`material-symbols-outlined text-[20px] ${theme === 'dark' ? 'text-primary filled-icon' : ''}`}>dark_mode</span>
               Oscuro
             </button>
           </div>
@@ -74,7 +89,7 @@ const AppearancePage = () => {
                 onClick={() => changeColorTheme(t.id)}
                 className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
                   colorTheme === t.id
-                    ? 'bg-primary/5 border-primary ring-1 ring-primary'
+                    ? 'bg-slate-50 dark:bg-slate-800 border-primary ring-1 ring-primary'
                     : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
                 }`}
               >
@@ -102,7 +117,7 @@ const AppearancePage = () => {
                     )}
                   </div>
                   <div className="flex flex-col items-start">
-                    <span className={`font-semibold ${colorTheme === t.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>
+                    <span className={`font-semibold ${colorTheme === t.id ? 'text-slate-900 dark:text-white' : 'text-slate-900 dark:text-white'}`}>
                       {t.name}
                     </span>
                     {t.id === 'custom' && (
@@ -119,6 +134,16 @@ const AppearancePage = () => {
               </button>
             ))}
           </div>
+
+          {colorTheme === 'custom' && isLowContrast && (
+            <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-1">
+              <span className="material-symbols-outlined text-orange-500 text-sm mt-0.5">warning</span>
+              <div className="text-xs text-orange-700 dark:text-orange-300">
+                <p className="font-semibold mb-0.5">Contraste bajo</p>
+                <p>El color seleccionado se pierde con el fondo. Intenta con un tono más {theme === 'light' ? 'oscuro' : 'claro'}.</p>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Background Color Section */}
@@ -157,6 +182,16 @@ const AppearancePage = () => {
               {customBackgroundColor || (theme === 'dark' ? '#111418' : '#f6f7f8')}
             </div>
           </div>
+
+          {isBgLowContrast && (
+            <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-3 animate-in fade-in slide-in-from-top-1">
+               <span className="material-symbols-outlined text-red-500 text-sm mt-0.5">error</span>
+               <div className="text-xs text-red-700 dark:text-red-300">
+                   <p className="font-semibold mb-0.5">Legibilidad reducida</p>
+                   <p>El texto será difícil de leer con este fondo.</p>
+               </div>
+            </div>
+          )}
         </section>
       </div>
     </div>

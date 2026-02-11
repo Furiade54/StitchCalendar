@@ -1,16 +1,13 @@
-export const EVENT_TYPES = {
-  APPOINTMENT: 'cita',
-  BIRTHDAY: 'cumpleaños',
-  REMINDER: 'recordatorio',
-  MEETING: 'reunión'
-};
+import { EVENT_TYPES, EVENT_STATUS, WEEK_DAYS } from '../utils/constants';
+
+export { EVENT_TYPES, EVENT_STATUS, WEEK_DAYS };
 
 // Initial dynamic event types data
 export const DEFAULT_EVENT_TYPES = [
   {
     id: 'type_1',
     user_id: 'user_1',
-    name: 'cita',
+    name: EVENT_TYPES.APPOINTMENT,
     label: 'Cita',
     icon: 'event',
     color_class: 'text-purple-600',
@@ -49,14 +46,6 @@ export const DEFAULT_EVENT_TYPES = [
   }
 ];
 
-export const EVENT_STATUS = {
-  SCHEDULED: 'programado',
-  IN_PROGRESS: 'en curso',
-  COMPLETED: 'completado',
-  OVERDUE: 'vencido',
-  CANCELLED: 'cancelado'
-};
-
 export const USERS = [
   { 
     id: 'user_1', 
@@ -68,10 +57,25 @@ export const USERS = [
     created_at: '2023-01-15T10:00:00Z',
     updated_at: '2023-01-15T10:00:00Z',
     last_seen_at: new Date().toISOString(),
-    password: 'password123'
+    password: 'password123',
+    family_id: 'family_1',
+    allowed_editors: [] // List of user_ids allowed to edit this calendar
   },
   { 
-    id: 'user_2', 
+    id: 'user_a', 
+    full_name: 'Usuario A', 
+    username: 'user_a',
+    email: 'a@a.com', 
+    avatar_url: 'person',
+    status: 'active',
+    created_at: '2023-01-15T10:00:00Z',
+    updated_at: '2023-01-15T10:00:00Z',
+    last_seen_at: new Date().toISOString(),
+    password: 'password123',
+    family_id: null
+  },
+  { 
+    id: 'user_2',  
     full_name: 'Colega de Trabajo', 
     username: 'colega_trabajo',
     email: 'work@example.com', 
@@ -80,10 +84,39 @@ export const USERS = [
     created_at: '2023-03-20T14:30:00Z',
     updated_at: '2023-03-20T14:30:00Z',
     last_seen_at: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-    password: 'password123'
+    password: 'password123',
+    family_id: null
   },
   { 
-    id: 'user_3', 
+    id: 'user_wife', 
+    full_name: 'Esposa', 
+    username: 'wife',
+    email: 'wife32@gmail.com', 
+    avatar_url: 'face_3',
+    status: 'active',
+    created_at: '2023-02-10T09:00:00Z',
+    updated_at: '2023-02-10T09:00:00Z',
+    last_seen_at: new Date().toISOString(),
+    password: 'password123',
+    family_id: 'family_1',
+    allowed_editors: ['user_1'] // Example: Wife allows Husband to edit
+  },
+  { 
+    id: 'user_son', 
+    full_name: 'Hijo', 
+    username: 'son',
+    email: 'son1414@hotmail.com', 
+    avatar_url: 'child_care',
+    status: 'active',
+    created_at: '2023-06-15T09:00:00Z',
+    updated_at: '2023-06-15T09:00:00Z',
+    last_seen_at: new Date().toISOString(),
+    password: 'password123',
+    family_id: 'family_1',
+    allowed_editors: ['user_1', 'user_wife'] // Parents can edit
+  },
+  { 
+    id: 'user_3',  
     full_name: 'Usuario Inactivo', 
     username: 'usuario_inactivo',
     email: 'inactive@example.com', 
@@ -303,4 +336,3 @@ export const CALENDAR_DAYS = [
   { day: 2, isGhost: true },
 ];
 
-export const WEEK_DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];

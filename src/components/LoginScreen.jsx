@@ -141,11 +141,14 @@ const LoginScreen = () => {
         <form onSubmit={handleAuth} className="space-y-4">
           {isRegistering && (
             <div className="animate-in slide-in-from-top-4 fade-in duration-300">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+              <label htmlFor="full-name-input" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
                 Nombre Completo
               </label>
               <input
+                id="full-name-input"
+                name="fullName"
                 type="text"
+                autoComplete="name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
@@ -156,12 +159,14 @@ const LoginScreen = () => {
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label htmlFor="email-input" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
               Correo Electrónico
             </label>
             <input
               id="email-input"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
@@ -170,11 +175,14 @@ const LoginScreen = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label htmlFor="password-input" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
               Contraseña
             </label>
             <input
+              id="password-input"
+              name="password"
               type="password"
+              autoComplete={isRegistering ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
@@ -184,11 +192,14 @@ const LoginScreen = () => {
 
           {isRegistering && (
             <div className="animate-in slide-in-from-top-4 fade-in duration-300">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+              <label htmlFor="confirm-password-input" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
                 Confirmar Contraseña
               </label>
               <input
+                id="confirm-password-input"
+                name="confirmPassword"
                 type="password"
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"

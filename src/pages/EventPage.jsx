@@ -3,13 +3,21 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { EVENT_STATUS } from '../data/mockData';
 import { dataService } from '../services/dataService';
 import { useAuth } from '../context/AuthContext';
+import { useFeedback } from '../context/FeedbackContext';
+import { AVAILABLE_COLORS, AVAILABLE_ICONS } from '../utils/constants';
 
 const EventPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { showAlert, showConfirm } = useFeedback();
   
+  // Determine effective user ID (context)
+  // If passed in state, use it; otherwise default to logged-in user
+  const targetUserId = location.state?.userId || user?.id;
+  const canEdit = targetUserId === user?.id || (user && dataService.canEdit(targetUserId, user.id));
+
   const isNew = id === 'new';
   
   const [event, setEvent] = useState(null);
@@ -22,19 +30,86 @@ const EventPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [hasJoined, setHasJoined] = useState(false);
+  
+  // Sharing State
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState([]);
+  const [selectedShareMembers, setSelectedShareMembers] = useState([]);
+  const [shareWithFamily, setShareWithFamily] = useState(false);
+
+  useEffect(() => {
+    const fetchFamily = async () => {
+        if (user) {
+            try {
+                const members = await dataService.getFamilyMembers(user.id);
+                setFamilyMembers(members);
+            } catch (err) {
+                console.error("Error fetching family members", err);
+            }
+        }
+    };
+    fetchFamily();
+  }, [user]);
+
+  useEffect(() => {
+    if (event && event.shared_with) {
+        setShareWithFamily(event.shared_with.includes('family'));
+        setSelectedShareMembers(event.shared_with.filter(id => id !== 'family'));
+    } else {
+        setShareWithFamily(false);
+        setSelectedShareMembers([]);
+    }
+  }, [event]);
+
+  const handleShareSave = async () => {
+    try {
+        const shareList = [...selectedShareMembers];
+        if (shareWithFamily) shareList.push('family');
+        
+        // Optimistic update
+        const updatedEvent = { ...event, shared_with: shareList };
+        setEvent(updatedEvent);
+        
+        // Pass user.id as requesting user (though shareEvent logic is slightly different, 
+        // usually only owner can share. But if I have edit permission, maybe I can share? 
+        // For now let's assume only owner or allowed editor can share.
+        // dataService.shareEvent uses index finding by userId, so we need to be careful.
+        // If I am editing someone else's event, shareEvent might need update to support targetUserId lookup.
+        // Let's assume shareEvent needs update or we use updateEvent for sharing too?
+        // Actually dataService.shareEvent takes (eventId, targetIds, userId). 
+        // The third arg is used to FIND the event: e.user_id === userId.
+        // So we MUST pass targetUserId here if we are on someone else's calendar.
+        await dataService.shareEvent(event.id, shareList, targetUserId);
+        setShareModalOpen(false);
+    } catch (error) {
+        console.error(error);
+        await showAlert(error.message, 'Error al compartir', { status: 'error' });
+        // Revert on error could be added here
+    }
+  };
+
+  const toggleShareMember = (memberId) => {
+      if (selectedShareMembers.includes(memberId)) {
+          setSelectedShareMembers(selectedShareMembers.filter(id => id !== memberId));
+      } else {
+          setSelectedShareMembers([...selectedShareMembers, memberId]);
+      }
+  };
 
   // Load event types
   useEffect(() => {
     const loadTypes = async () => {
       try {
-        const types = await dataService.getEventTypes(user.id);
+        const types = await dataService.getEventTypes(targetUserId);
         setEventTypes(types);
       } catch (err) {
         console.error('Failed to load event types', err);
       }
     };
-    loadTypes();
-  }, [user.id]);
+    if (targetUserId) {
+      loadTypes();
+    }
+  }, [targetUserId]);
 
   // Initialize data
   useEffect(() => {
@@ -68,9 +143,9 @@ const EventPage = () => {
           notes: '',
           isRecurring: false,
           recurrencePattern: 'weekly',
-          colorClass: defaultType?.color_class || 'text-purple-600',
-          iconBgClass: defaultType?.icon_bg_class || 'bg-purple-100',
-          icon: defaultType?.icon || 'event'
+          colorClass: defaultType?.color_class || AVAILABLE_COLORS[0].class,
+          iconBgClass: defaultType?.icon_bg_class || AVAILABLE_COLORS[0].bg,
+          icon: defaultType?.icon || AVAILABLE_ICONS[0]
         };
         
         setEvent(newEventTemplate);
@@ -81,7 +156,7 @@ const EventPage = () => {
 
       try {
         setIsLoading(true);
-        const eventData = await dataService.getEventById(id, user.id);
+        const eventData = await dataService.getEventById(id, targetUserId);
         setEvent(eventData);
         setEditedEvent({ ...eventData });
       } catch (err) {
@@ -93,7 +168,7 @@ const EventPage = () => {
     };
 
     loadEvent();
-  }, [id, isNew, location.state, user.id, eventTypes]);
+  }, [id, isNew, location.state, targetUserId, eventTypes]);
 
   const handleTypeChange = (typeName) => {
     const typeConfig = eventTypes.find(t => t.name === typeName);
@@ -121,6 +196,8 @@ const EventPage = () => {
   const requiresEndTime = currentEventTypeConfig.requires_end_time !== false; // Default to true if not found
 
   const handleToggleImportant = async () => {
+    if (!canEdit) return; // Prevent action if read-only
+
     if (isEditing) {
        setEditedEvent({ ...editedEvent, isImportant: !editedEvent.isImportant });
     } else {
@@ -128,7 +205,7 @@ const EventPage = () => {
        const updatedEvent = { ...event, isImportant: !event.isImportant };
        setEvent(updatedEvent); // Optimistic UI
        try {
-         await dataService.updateEvent(updatedEvent, user.id);
+         await dataService.updateEvent(updatedEvent, targetUserId, user.id);
        } catch (err) {
          console.error('Failed to update importance', err);
          // Revert on error
@@ -170,13 +247,21 @@ const EventPage = () => {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('¿Estás seguro de que quieres eliminar este evento? Esta acción no se puede deshacer.')) {
+    if (!canEdit) return;
+
+    const confirmed = await showConfirm(
+      '¿Estás seguro de que quieres eliminar este evento? Esta acción no se puede deshacer.',
+      'Eliminar Evento',
+      { status: 'error', confirmText: 'Eliminar', cancelText: 'Cancelar' }
+    );
+
+    if (!confirmed) {
       return;
     }
 
     setIsDeleting(true);
     try {
-      await dataService.deleteEvent(event.id, user.id);
+      await dataService.deleteEvent(event.id, targetUserId, user.id);
       navigate(-1); // Go back
     } catch (err) {
       console.error(err);
@@ -194,13 +279,18 @@ const EventPage = () => {
 
   const handleSave = async () => {
     if (!editedEvent) return;
+    if (!canEdit) {
+        await showAlert("No tienes permiso para editar este calendario.", "Acceso Denegado", { status: 'error' });
+        return;
+    }
+
     setIsSaving(true);
     
     try {
       if (isNew) {
-        await dataService.addEvent(editedEvent, user.id);
+        await dataService.addEvent(editedEvent, targetUserId, user.id);
       } else {
-        await dataService.updateEvent(editedEvent, user.id);
+        await dataService.updateEvent(editedEvent, targetUserId, user.id);
       }
       navigate(-1); // Go back after save
     } catch (err) {
@@ -283,13 +373,30 @@ const EventPage = () => {
           {isNew ? 'Nuevo Evento' : (isEditing ? 'Editar Evento' : 'Detalles del Evento')}
         </h1>
 
+        {!isNew && !isEditing && canEdit && (
+            <button
+                onClick={() => setShareModalOpen(true)}
+                className={`size-10 flex items-center justify-center rounded-full transition-colors ${
+                  (event?.shared_with && event.shared_with.length > 0)
+                    ? 'bg-blue-50 text-blue-500 dark:bg-blue-900/20' 
+                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500'
+                }`}
+                title="Compartir evento"
+            >
+                 <span className={`material-symbols-outlined ${
+                   (event?.shared_with && event.shared_with.length > 0) ? 'filled-icon' : ''
+                 }`}>share</span>
+            </button>
+        )}
+
         <button
             onClick={handleToggleImportant}
+            disabled={!canEdit}
             className={`size-10 flex items-center justify-center rounded-full transition-colors ${
               (isEditing ? editedEvent?.isImportant : event?.isImportant) 
                 ? 'bg-amber-50 text-amber-400 dark:bg-amber-900/20' 
                 : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500'
-            }`}
+            } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
             title="Marcar como importante"
         >
              <span className={`material-symbols-outlined ${
@@ -555,6 +662,23 @@ const EventPage = () => {
                 </div>
               )}
 
+              {(event.shared_with && event.shared_with.length > 0) && (
+                <div className="flex items-center gap-4 text-slate-700 dark:text-slate-200">
+                  <div className="size-10 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
+                    <span className="material-symbols-outlined text-blue-500">share</span>
+                  </div>
+                  <div>
+                     <p className="text-sm text-slate-500 dark:text-slate-400">Compartido con</p>
+                     <p className="font-medium text-blue-600 dark:text-blue-400">
+                       {event.shared_with.includes('family') 
+                          ? 'Grupo Familiar' 
+                          : `${event.shared_with.length} miembro${event.shared_with.length > 1 ? 's' : ''}`
+                       }
+                     </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-start gap-4 text-slate-700 dark:text-slate-200">
                 <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
                   <span className="material-symbols-outlined text-slate-500">description</span>
@@ -592,12 +716,14 @@ const EventPage = () => {
             </>
           ) : (
             <>
-              <button 
-                onClick={() => setIsEditing(true)}
-                className="flex-1 py-4 px-6 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-              >
-                Editar
-              </button>
+              {canEdit && (
+                  <button 
+                    onClick={() => setIsEditing(true)}
+                    className="flex-1 py-4 px-6 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Editar
+                  </button>
+              )}
               
               {event.meetingUrl ? (
                 <button 
@@ -626,6 +752,7 @@ const EventPage = () => {
                   )}
                 </button>
               ) : (
+                 canEdit && (
                  <button 
                   onClick={handleDelete}
                   disabled={isDeleting}
@@ -634,13 +761,14 @@ const EventPage = () => {
                   {isDeleting ? <span className="size-4 border-2 border-red-600/30 border-t-red-600 rounded-full animate-spin"></span> : <span className="material-symbols-outlined">delete</span>}
                   Eliminar
                 </button>
+                )
               )}
             </>
           )}
           </div>
           
           {/* Extra delete button if meeting url exists (since layout is 2 columns) */}
-          {!isEditing && event.meetingUrl && (
+          {!isEditing && event.meetingUrl && canEdit && (
              <button 
               onClick={handleDelete}
               disabled={isDeleting}
@@ -652,6 +780,105 @@ const EventPage = () => {
           )}
         </div>
       </div>
+
+      {/* Share Modal */}
+      {shareModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-surface-dark w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+               <h3 className="text-lg font-bold text-slate-900 dark:text-white">Compartir Evento</h3>
+               <button onClick={() => setShareModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                 <span className="material-symbols-outlined">close</span>
+               </button>
+            </div>
+            
+            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+               <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30">
+                  <div className="flex items-center gap-3">
+                     <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-full text-blue-600 dark:text-blue-400">
+                        <span className="material-symbols-outlined">group</span>
+                     </div>
+                     <div className="flex-1">
+                        <p className="font-bold text-slate-900 dark:text-white">Todo el Grupo Familiar</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Visible para todos los miembros</p>
+                     </div>
+                     <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="sr-only peer"
+                          checked={shareWithFamily}
+                          onChange={(e) => setShareWithFamily(e.target.checked)} 
+                        />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                     </label>
+                  </div>
+               </div>
+
+               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-4">Miembros Específicos</p>
+               
+               <div className="space-y-2">
+                 {familyMembers.length > 0 ? (
+                   familyMembers.map(member => (
+                     <div 
+                       key={member.id} 
+                       onClick={() => !shareWithFamily && toggleShareMember(member.id)}
+                       className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+                         shareWithFamily 
+                           ? 'opacity-50 pointer-events-none border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50'
+                           : selectedShareMembers.includes(member.id)
+                             ? 'border-primary bg-primary/5 dark:bg-primary/10'
+                             : 'border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                       }`}
+                     >
+                       <div className="relative">
+                         <span className="material-symbols-outlined text-2xl text-slate-400">
+                           {member.avatar_url || 'account_circle'}
+                         </span>
+                         {shareWithFamily && (
+                           <span className="absolute -bottom-1 -right-1 size-4 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                             <span className="material-symbols-outlined text-[10px] text-white">check</span>
+                           </span>
+                         )}
+                       </div>
+                       <div className="flex-1">
+                         <p className="font-medium text-slate-900 dark:text-white">{member.full_name}</p>
+                         <p className="text-xs text-slate-500">{member.email}</p>
+                       </div>
+                       
+                       {!shareWithFamily && (
+                         <div className={`size-6 rounded-full border flex items-center justify-center transition-colors ${
+                           selectedShareMembers.includes(member.id)
+                             ? 'bg-primary border-primary text-white'
+                             : 'border-slate-300 dark:border-slate-600'
+                         }`}>
+                           {selectedShareMembers.includes(member.id) && <span className="material-symbols-outlined text-sm">check</span>}
+                         </div>
+                       )}
+                     </div>
+                   ))
+                 ) : (
+                   <p className="text-sm text-slate-400 italic text-center py-4">No tienes miembros familiares agregados.</p>
+                 )}
+               </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex gap-3">
+               <button 
+                 onClick={() => setShareModalOpen(false)}
+                 className="flex-1 py-3 px-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+               >
+                 Cancelar
+               </button>
+               <button 
+                 onClick={handleShareSave}
+                 className="flex-1 py-3 px-4 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25"
+               >
+                 Guardar
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

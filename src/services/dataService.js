@@ -1,10 +1,26 @@
-import { SCHEDULE_DATA, CALENDAR_DAYS, CURRENT_USER_ID, DEFAULT_EVENT_TYPES, EVENT_STATUS, EVENT_TYPES } from '../data/mockData';
+import { SCHEDULE_DATA, CALENDAR_DAYS, CURRENT_USER_ID, DEFAULT_EVENT_TYPES, EVENT_STATUS, EVENT_TYPES, USERS } from '../data/mockData';
 // import { supabase } from '../lib/supabase'; // FUTURE: Import Supabase client
 
 const SIMULATE_DELAY_MS = 800;
 
+const USERS_KEY = 'stitch_users';
+
+// Helper to access the "database" (localStorage) - SAME AS AUTH SERVICE
+const getStoredUsers = () => {
+  const stored = localStorage.getItem(USERS_KEY);
+  return stored ? JSON.parse(stored) : USERS;
+};
+
+const saveUsers = (users) => {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+};
+
+// In-memory store for users (simulating DB) - Now initialized from localStorage
+let MEMORY_USERS = getStoredUsers();
+
 const STORAGE_KEY_EVENTS = 'stitch_calendar_events';
 const STORAGE_KEY_TYPES = 'stitch_event_types';
+const STORAGE_KEY_NOTIFICATIONS = 'stitch_notifications';
 
 // Load initial data from LocalStorage or fall back to Mock Data
 const loadFromStorage = (key, defaultData) => {
@@ -28,6 +44,7 @@ const saveToStorage = (key, data) => {
 // In-memory store initialized from storage
 let MEMORY_EVENT_TYPES = loadFromStorage(STORAGE_KEY_TYPES, DEFAULT_EVENT_TYPES);
 let MEMORY_SCHEDULE = loadFromStorage(STORAGE_KEY_EVENTS, SCHEDULE_DATA);
+let MEMORY_NOTIFICATIONS = loadFromStorage(STORAGE_KEY_NOTIFICATIONS, []);
 
 // MIGRATION: Auto-assign event_type_id to legacy events
 const migrateLegacyEvents = () => {
@@ -205,12 +222,62 @@ export const dataService = {
   getSchedule: async (day, currentDate, userId = CURRENT_USER_ID) => {
     return new Promise((resolve) => {
       setTimeout(() => {
-        // Run overdue check on all user events before filtering
-        const userEvents = MEMORY_SCHEDULE.filter(item => item.user_id === userId);
+        // Refresh users to ensure family links are up to date
+        const currentUsers = getStoredUsers(); 
+        const currentUser = currentUsers.find(u => u.id === userId);
+
+        // Run overdue check on all events (global) before filtering could be better, 
+        // but for now we filter first for performance, then check overdue on result.
+        // Wait, checkAndMarkOverdue modifies objects. We should check relevant events.
+        
+        // FUTURE: This logic mimics Supabase RLS 'SELECT' policy.
+        // The Policy would be:
+        // auth.uid() = user_id  -- Owner
+        // OR auth.uid() = ANY(shared_with) -- Direct Share
+        // OR ('family' = ANY(shared_with) AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND family_id = events.family_id)) -- Family Share
+        // OR auth.uid() = ANY (SELECT unnest(allowed_editors) FROM profiles WHERE id = events.user_id) -- Editor Access
+        const userEvents = MEMORY_SCHEDULE.filter(item => {
+             const isOwner = item.user_id === userId;
+             
+             // Check direct sharing
+             const isSharedWithMe = item.shared_with && item.shared_with.includes(userId);
+             
+             // Check family sharing
+             let isFamilyShared = false;
+             if (item.shared_with && item.shared_with.includes('family')) {
+                 const owner = currentUsers.find(u => u.id === item.user_id);
+                 // If I am in the same family as the owner
+                 if (owner && currentUser && owner.family_id && currentUser.family_id === owner.family_id) {
+                     isFamilyShared = true;
+                 }
+             }
+
+             // Check editor permission (Editors can SEE the calendar too)
+             const canEdit = dataService.canEdit(item.user_id, userId);
+
+             return isOwner || isSharedWithMe || isFamilyShared || canEdit;
+        });
+
         checkAndMarkOverdue(userEvents);
 
         // Perform JOIN with Event Types to hydrate visual data
-        const joinedEvents = userEvents.map(event => joinEventType(event));
+        // AND JOIN with Users to get Owner Info
+        const joinedEvents = userEvents.map(event => {
+            const hydratedEvent = joinEventType(event);
+            
+            // Attach Owner Info
+            const owner = currentUsers.find(u => u.id === event.user_id);
+            if (owner) {
+                hydratedEvent.owner = {
+                    id: owner.id,
+                    full_name: owner.full_name,
+                    avatar_url: owner.avatar_url,
+                    username: owner.username
+                };
+            }
+            
+            return hydratedEvent;
+        });
 
         let filtered = joinedEvents;
         
@@ -318,60 +385,155 @@ export const dataService = {
     });
   },
 
-  updateEvent: async (updatedEvent, userId = CURRENT_USER_ID) => {
-    return new Promise((resolve) => {
+  updateEvent: async (updatedEvent, userId = CURRENT_USER_ID, requestingUserId = null) => {
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
-        const index = MEMORY_SCHEDULE.findIndex(e => e.id === updatedEvent.id && e.user_id === userId);
-        if (index !== -1) {
-          // Clean up visual props before saving to simulate DB normalization
-          // We only save the data that actually belongs in the 'events' table
-          const { colorClass, iconBgClass, icon, eventTypeName, ...dbEvent } = updatedEvent;
-          
-          // Ensure event_type_id is set if we have a type name
-          if (!dbEvent.event_type_id && dbEvent.eventType) {
-             const type = MEMORY_EVENT_TYPES.find(t => 
-                t.name.toLowerCase() === dbEvent.eventType.toLowerCase() &&
-                t.user_id === userId
-             );
-             if (type) dbEvent.event_type_id = type.id;
-          }
-
-          MEMORY_SCHEDULE[index] = { ...MEMORY_SCHEDULE[index], ...dbEvent };
-          saveToStorage(STORAGE_KEY_EVENTS, MEMORY_SCHEDULE);
-          
-          // Return the full hydrated object for the frontend
-          resolve(joinEventType(MEMORY_SCHEDULE[index]));
-        } else {
-           // If not found, resolve with null or original
-           resolve(updatedEvent);
+        // Find existing event to verify owner
+        const existingEvent = MEMORY_SCHEDULE.find(e => e.id.toString() === updatedEvent.id.toString());
+        if (!existingEvent) {
+             reject(new Error("Evento no encontrado"));
+             return;
         }
-      }, SIMULATE_DELAY_MS / 2);
+
+        // The owner of the event is existingEvent.user_id
+        // We must check if requestingUserId can edit existingEvent.user_id's calendar
+        if (requestingUserId && requestingUserId !== existingEvent.user_id) {
+             const hasPermission = dataService.canEdit(existingEvent.user_id, requestingUserId);
+             if (!hasPermission) {
+                 reject(new Error("No tienes permiso para editar este evento."));
+                 return;
+             }
+        }
+
+        const index = MEMORY_SCHEDULE.findIndex(e => e.id.toString() === updatedEvent.id.toString() && e.user_id === userId);
+        if (index !== -1) {
+           // Clean up visual props before saving to simulate DB normalization
+           const { colorClass, iconBgClass, icon, eventTypeName, ...dbEvent } = updatedEvent;
+           
+           // Ensure event_type_id is set if we have a type name
+           if (!dbEvent.event_type_id && dbEvent.eventType) {
+              const type = MEMORY_EVENT_TYPES.find(t => 
+                 t.name.toLowerCase() === dbEvent.eventType.toLowerCase() &&
+                 t.user_id === userId
+              );
+              if (type) dbEvent.event_type_id = type.id;
+           }
+
+           MEMORY_SCHEDULE[index] = { ...MEMORY_SCHEDULE[index], ...dbEvent };
+           saveToStorage(STORAGE_KEY_EVENTS, MEMORY_SCHEDULE);
+           resolve(joinEventType(MEMORY_SCHEDULE[index]));
+        } else {
+          reject(new Error('Evento no encontrado'));
+        }
+      }, SIMULATE_DELAY_MS);
     });
   },
 
-  deleteEvent: async (eventId, userId = CURRENT_USER_ID) => {
+  deleteEvent: async (eventId, userId = CURRENT_USER_ID, requestingUserId = null) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const event = MEMORY_SCHEDULE.find(e => e.id.toString() === eventId.toString());
+        if (!event) {
+             reject(new Error("Evento no encontrado"));
+             return;
+        }
+
+        if (requestingUserId && requestingUserId !== event.user_id) {
+             const hasPermission = dataService.canEdit(event.user_id, requestingUserId);
+             if (!hasPermission) {
+                 reject(new Error("No tienes permiso para eliminar este evento."));
+                 return;
+             }
+        }
+
+        const initialLength = MEMORY_SCHEDULE.length;
+        MEMORY_SCHEDULE = MEMORY_SCHEDULE.filter(e => !(e.id.toString() === eventId.toString() && e.user_id === userId));
+        
+        if (MEMORY_SCHEDULE.length < initialLength) {
+          saveToStorage(STORAGE_KEY_EVENTS, MEMORY_SCHEDULE);
+          resolve({ success: true });
+        } else {
+          reject(new Error('Evento no encontrado o permiso denegado'));
+        }
+      }, SIMULATE_DELAY_MS);
+    });
+  },
+
+  shareEvent: async (eventId, targetIds, userId = CURRENT_USER_ID) => {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         const index = MEMORY_SCHEDULE.findIndex(e => e.id.toString() === eventId.toString() && e.user_id === userId);
         if (index !== -1) {
-          MEMORY_SCHEDULE.splice(index, 1);
+          // Update shared_with
+          // targetIds should be an array of strings (userIds or 'family')
+          MEMORY_SCHEDULE[index] = {
+            ...MEMORY_SCHEDULE[index],
+            shared_with: targetIds
+          };
           saveToStorage(STORAGE_KEY_EVENTS, MEMORY_SCHEDULE);
-          resolve(true);
+          
+          // Return the full hydrated object
+          resolve(joinEventType(MEMORY_SCHEDULE[index]));
         } else {
-          reject(new Error('Event not found or access denied'));
+          reject(new Error('Evento no encontrado o permiso denegado'));
         }
       }, SIMULATE_DELAY_MS / 2);
     });
   },
 
-  addEvent: async (newEvent, userId = CURRENT_USER_ID) => {
+  updateUserPermissions: async (userId, allowedEditors) => {
     return new Promise((resolve) => {
       setTimeout(() => {
+        // FUTURE: This maps to an UPDATE on the 'profiles' table.
+        // RLS Policy: Users can only update their own profile.
+        // CHECK (auth.uid() = id)
+        const userIndex = MEMORY_USERS.findIndex(u => u.id === userId);
+        if (userIndex !== -1) {
+          MEMORY_USERS[userIndex] = {
+            ...MEMORY_USERS[userIndex],
+            allowed_editors: allowedEditors
+          };
+          saveUsers(MEMORY_USERS);
+          resolve(MEMORY_USERS[userIndex]);
+        } else {
+          resolve(null);
+        }
+      }, SIMULATE_DELAY_MS / 2);
+    });
+  },
+
+  // FUTURE: This method maps to Supabase RLS policies for table "events".
+  // The policy "Users can insert/update/delete events" would look like:
+  // (auth.uid() = user_id) OR (auth.uid() = ANY (SELECT unnest(allowed_editors) FROM profiles WHERE id = events.user_id))
+  canEdit: (targetUserId, editorId) => {
+    if (targetUserId === editorId) return true;
+    const users = getStoredUsers();
+    const targetUser = users.find(u => u.id === targetUserId);
+    // In RLS, 'allowed_editors' is a text[] column in the 'profiles' table
+    return targetUser && targetUser.allowed_editors && targetUser.allowed_editors.includes(editorId);
+  },
+
+  addEvent: async (newEvent, userId = CURRENT_USER_ID, requestingUserId = null) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        // Permission check
+        // FUTURE: RLS Policy for INSERT:
+        // WITH CHECK ((auth.uid() = user_id) OR (auth.uid() = ANY (SELECT unnest(allowed_editors) FROM profiles WHERE id = user_id)))
+        if (requestingUserId && requestingUserId !== userId) {
+             const hasPermission = dataService.canEdit(userId, requestingUserId);
+             if (!hasPermission) {
+                 reject(new Error("No tienes permiso para editar el calendario de este usuario."));
+                 return;
+             }
+        }
+
         // Prepare DB record
         const eventRecord = {
           ...newEvent,
           id: Date.now(),
           user_id: userId,
+          // Track who actually created the event if it wasn't the owner (Audit Trail)
+          created_by: requestingUserId || userId, 
           created_at: new Date().toISOString()
         };
 
@@ -521,6 +683,334 @@ export const dataService = {
 
         resolve(completedEvents);
       }, SIMULATE_DELAY_MS / 2);
+    });
+  },
+
+  getFamilyMembers: async (userId) => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        // Refresh from storage to ensure we have latest data
+        MEMORY_USERS = getStoredUsers();
+        const currentUser = MEMORY_USERS.find(u => u.id === userId);
+        if (!currentUser || !currentUser.family_id) {
+          resolve([]);
+          return;
+        }
+        const members = MEMORY_USERS.filter(u => 
+          u.family_id === currentUser.family_id && u.id !== userId
+        );
+        resolve(members);
+      }, SIMULATE_DELAY_MS / 2);
+    });
+  },
+
+  // FUTURE: This method maps to a Supabase RPC function because it requires cross-user write permissions.
+  // See: supabase/migrations/20231028000001_rpc_add_family_member.sql
+  // Usage: const { data, error } = await supabase.rpc('add_family_member', { target_email: email });
+  addFamilyMember: async (currentUserId, email) => {
+    return new Promise((resolve, reject) => {
+       setTimeout(() => {
+          // Refresh from storage
+          MEMORY_USERS = getStoredUsers();
+          
+          const currentUserIndex = MEMORY_USERS.findIndex(u => u.id === currentUserId);
+          if (currentUserIndex === -1) {
+             reject(new Error("Usuario actual no encontrado"));
+             return;
+          }
+
+          const targetUserIndex = MEMORY_USERS.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+          if (targetUserIndex === -1) {
+             reject(new Error("No se encontró ningún usuario con ese email"));
+             return;
+          }
+
+          const currentUser = MEMORY_USERS[currentUserIndex];
+          const targetUser = MEMORY_USERS[targetUserIndex];
+
+          if (currentUser.id === targetUser.id) {
+              reject(new Error("No puedes agregarte a ti mismo"));
+              return;
+          }
+
+          if (targetUser.family_id && targetUser.family_id !== currentUser.family_id) {
+              reject(new Error("Este usuario ya pertenece a otro grupo familiar"));
+              return;
+          }
+          
+          if (targetUser.family_id === currentUser.family_id && currentUser.family_id) {
+              reject(new Error("Este usuario ya está en tu grupo familiar"));
+              return;
+          }
+
+          // Crear family_id si no existe
+          let familyId = currentUser.family_id;
+          if (!familyId) {
+              familyId = `family_${Date.now()}`;
+              MEMORY_USERS[currentUserIndex].family_id = familyId;
+          }
+
+          // Asignar al target
+          MEMORY_USERS[targetUserIndex].family_id = familyId;
+          
+          // IMPORTANT: Update currentUser in memory too if we just created a new family for them
+          if (!currentUser.family_id) {
+             MEMORY_USERS[currentUserIndex].family_id = familyId;
+          }
+
+          // PERSIST CHANGES TO STORAGE
+          saveUsers(MEMORY_USERS);
+
+          resolve(MEMORY_USERS[targetUserIndex]);
+       }, SIMULATE_DELAY_MS);
+    });
+  },
+
+  removeFamilyMember: async (currentUserId, targetMemberId) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        MEMORY_USERS = getStoredUsers();
+        const currentUser = MEMORY_USERS.find(u => u.id === currentUserId);
+        const targetUserIndex = MEMORY_USERS.findIndex(u => u.id === targetMemberId);
+
+        if (!currentUser || !currentUser.family_id) {
+          reject(new Error("No perteneces a ningún grupo familiar"));
+          return;
+        }
+        
+        // FUTURE: This operation requires an RPC function in Supabase because
+        // a user cannot update another user's profile directly via RLS.
+        // Function: remove_family_member(target_user_id uuid)
+        
+        if (targetUserIndex === -1) {
+          reject(new Error("Usuario no encontrado"));
+          return;
+        }
+
+        const targetUser = MEMORY_USERS[targetUserIndex];
+
+        if (targetUser.family_id !== currentUser.family_id) {
+          reject(new Error("Este usuario no pertenece a tu grupo familiar"));
+          return;
+        }
+
+        // Remove from family
+        MEMORY_USERS[targetUserIndex].family_id = null;
+        
+        // Also remove from allowed_editors if present to revoke permissions
+        if (currentUser.allowed_editors) {
+            const editorIndex = currentUser.allowed_editors.indexOf(targetMemberId);
+            if (editorIndex !== -1) {
+                const currentUserIndex = MEMORY_USERS.findIndex(u => u.id === currentUserId);
+                const updatedEditors = [...currentUser.allowed_editors];
+                updatedEditors.splice(editorIndex, 1);
+                MEMORY_USERS[currentUserIndex].allowed_editors = updatedEditors;
+            }
+        }
+
+        saveUsers(MEMORY_USERS);
+        resolve({ success: true });
+      }, SIMULATE_DELAY_MS);
+    });
+  },
+
+  leaveFamilyGroup: async (userId) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        MEMORY_USERS = getStoredUsers();
+        const userIndex = MEMORY_USERS.findIndex(u => u.id === userId);
+
+        if (userIndex === -1) {
+          reject(new Error("Usuario no encontrado"));
+          return;
+        }
+
+        if (!MEMORY_USERS[userIndex].family_id) {
+          reject(new Error("No perteneces a ningún grupo familiar"));
+          return;
+        }
+
+        // Remove family_id
+        MEMORY_USERS[userIndex].family_id = null;
+        saveUsers(MEMORY_USERS);
+        resolve({ success: true });
+      }, SIMULATE_DELAY_MS);
+    });
+  },
+
+  sendFamilyRequest: async (currentUserId, targetEmail) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        MEMORY_USERS = getStoredUsers();
+        const currentUser = MEMORY_USERS.find(u => u.id === currentUserId);
+        const targetUser = MEMORY_USERS.find(u => u.email.toLowerCase() === targetEmail.toLowerCase());
+
+        if (!currentUser) {
+            reject(new Error("Usuario actual no encontrado"));
+            return;
+        }
+
+        if (!targetUser) {
+            reject(new Error("Usuario objetivo no encontrado"));
+            return;
+        }
+
+        if (!targetUser.family_id) {
+            reject(new Error("El usuario objetivo no tiene grupo familiar"));
+            return;
+        }
+
+        if (targetUser.id === currentUserId) {
+            reject(new Error("No puedes enviarte una solicitud a ti mismo"));
+            return;
+        }
+
+        // Check if request already exists
+        const existingRequest = MEMORY_NOTIFICATIONS.find(n => 
+            n.type === 'family_request' && 
+            n.fromUserId === currentUserId && 
+            n.toUserId === targetUser.id &&
+            n.status === 'pending'
+        );
+
+        if (existingRequest) {
+            reject(new Error("Ya has enviado una solicitud a este usuario"));
+            return;
+        }
+
+        // Create Notification
+        const notification = {
+            id: `notif_${Date.now()}`,
+            type: 'family_request',
+            fromUserId: currentUserId,
+            fromUserName: currentUser.full_name || currentUser.email,
+            toUserId: targetUser.id,
+            familyId: targetUser.family_id,
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        };
+
+        MEMORY_NOTIFICATIONS.push(notification);
+        saveToStorage(STORAGE_KEY_NOTIFICATIONS, MEMORY_NOTIFICATIONS);
+        
+        resolve({ success: true, message: "Solicitud enviada correctamente" });
+      }, SIMULATE_DELAY_MS);
+    });
+  },
+
+  getNotifications: async (userId) => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const notifications = MEMORY_NOTIFICATIONS.filter(n => n.toUserId === userId && n.status === 'pending')
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        resolve(notifications);
+      }, SIMULATE_DELAY_MS / 2);
+    });
+  },
+
+  respondToFamilyRequest: async (notificationId, userId, accept) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        // FUTURE: This method maps to a Supabase RPC function.
+        // Even though we are updating the 'notifications' status (which the user owns),
+        // we are ALSO updating the *requester's* family_id (which the user DOES NOT own).
+        // Therefore, this entire transaction must be wrapped in a SECURITY DEFINER function.
+        // Function: respond_to_family_request(notification_id uuid, accept boolean)
+        
+        const notificationIndex = MEMORY_NOTIFICATIONS.findIndex(n => n.id === notificationId && n.toUserId === userId);
+        
+        if (notificationIndex === -1) {
+            reject(new Error("Notificación no encontrada"));
+            return;
+        }
+
+        const notification = MEMORY_NOTIFICATIONS[notificationIndex];
+
+        if (accept) {
+            // Logic to join the user to the family
+            MEMORY_USERS = getStoredUsers();
+            
+            // The requester is the one who wanted to join YOUR family
+            // So we add 'fromUserId' to 'toUserId's family
+            // WAIT - The prompt says: "Este usuario ya pertenece a otro grupo familiar, deseas que le enviemos una solicitud para que te una a su grupo familiar?"
+            // So User A (Current) asks User B (Target/Existing Group) to join User B's family.
+            // Notification goes to User B.
+            // If User B accepts, User A should be added to User B's family.
+            
+            // BUT wait, User A initiated the request.
+            // The notification is: "User A wants to join your family group".
+            // So 'fromUserId' is User A. 'toUserId' is User B.
+            // If User B accepts, User A's family_id should become User B's family_id.
+
+            const requesterIndex = MEMORY_USERS.findIndex(u => u.id === notification.fromUserId);
+            const approverIndex = MEMORY_USERS.findIndex(u => u.id === userId); // User B
+
+            if (requesterIndex === -1 || approverIndex === -1) {
+                reject(new Error("Usuario no encontrado"));
+                return;
+            }
+
+            const approver = MEMORY_USERS[approverIndex];
+            
+            // Assign requester to approver's family
+            MEMORY_USERS[requesterIndex].family_id = approver.family_id;
+            saveUsers(MEMORY_USERS);
+        }
+
+        // Update notification status
+        MEMORY_NOTIFICATIONS[notificationIndex].status = accept ? 'accepted' : 'rejected';
+        saveToStorage(STORAGE_KEY_NOTIFICATIONS, MEMORY_NOTIFICATIONS);
+
+        resolve({ success: true });
+      }, SIMULATE_DELAY_MS);
+    });
+  },
+
+  deleteUser: async (userId) => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        MEMORY_USERS = getStoredUsers();
+        const userIndex = MEMORY_USERS.findIndex(u => u.id === userId);
+        
+        if (userIndex === -1) {
+          reject(new Error("Usuario no encontrado"));
+          return;
+        }
+
+        // 1. Remove User
+        MEMORY_USERS.splice(userIndex, 1);
+        
+        // 2. Remove from other users' allowed_editors
+        MEMORY_USERS.forEach(user => {
+            if (user.allowed_editors && user.allowed_editors.includes(userId)) {
+                user.allowed_editors = user.allowed_editors.filter(id => id !== userId);
+            }
+        });
+        saveUsers(MEMORY_USERS);
+
+        // 3. Cascade Delete Events
+        const initialEventCount = MEMORY_SCHEDULE.length;
+        MEMORY_SCHEDULE = MEMORY_SCHEDULE.filter(e => e.user_id !== userId);
+        if (MEMORY_SCHEDULE.length !== initialEventCount) {
+            saveToStorage(STORAGE_KEY_EVENTS, MEMORY_SCHEDULE);
+        }
+
+        // 4. Cascade Delete Event Types
+        const initialTypeCount = MEMORY_EVENT_TYPES.length;
+        MEMORY_EVENT_TYPES = MEMORY_EVENT_TYPES.filter(t => t.user_id !== userId);
+        if (MEMORY_EVENT_TYPES.length !== initialTypeCount) {
+            saveToStorage(STORAGE_KEY_TYPES, MEMORY_EVENT_TYPES);
+        }
+
+        // 5. Cascade Delete Notifications (sent by or received by user)
+        const initialNotifCount = MEMORY_NOTIFICATIONS.length;
+        MEMORY_NOTIFICATIONS = MEMORY_NOTIFICATIONS.filter(n => n.fromUserId !== userId && n.toUserId !== userId);
+        if (MEMORY_NOTIFICATIONS.length !== initialNotifCount) {
+            saveToStorage(STORAGE_KEY_NOTIFICATIONS, MEMORY_NOTIFICATIONS);
+        }
+
+        resolve({ success: true });
+      }, SIMULATE_DELAY_MS);
     });
   }
 };

@@ -5,7 +5,9 @@ import EventPage from './pages/EventPage';
 import SettingsPage from './pages/SettingsPage';
 import EventTypesPage from './pages/EventTypesPage';
 import AppearancePage from './pages/AppearancePage';
+import NotificationsPage from './pages/NotificationsPage';
 import UserProfilePage from './pages/UserProfilePage';
+import FamilyGroupPage from './pages/FamilyGroupPage';
 import CompletedTasksPage from './pages/CompletedTasksPage';
 import LoginScreen from './components/LoginScreen';
 import RegisterScreen from './components/RegisterScreen';
@@ -39,9 +41,13 @@ function App() {
         
         <Route path="/event-types" element={user ? <EventTypesPage /> : <Navigate to="/login" />} />
 
+        <Route path="/notifications" element={user ? <NotificationsPage /> : <Navigate to="/login" />} />
+
         <Route path="/appearance" element={user ? <AppearancePage /> : <Navigate to="/login" />} />
 
         <Route path="/profile" element={user ? <UserProfilePage /> : <Navigate to="/login" />} />
+        
+        <Route path="/family-group" element={user ? <FamilyGroupPage /> : <Navigate to="/login" />} />
         
         <Route path="/completed-tasks" element={user ? <CompletedTasksPage /> : <Navigate to="/login" />} />
 

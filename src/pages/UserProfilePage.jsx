@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { dataService } from '../services/dataService';
 
 const UserProfilePage = () => {
   const { user, signOut, updateUser } = useAuth();
+  const { showAlert } = useFeedback();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -84,9 +86,10 @@ const UserProfilePage = () => {
       setIsEditing(false);
       // Clear password fields after save
       setFormData(prev => ({ ...prev, password: '', confirmPassword: '', currentPassword: '' }));
+      showAlert('Perfil actualizado correctamente', 'Éxito', 'success');
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert(error.message);
+      showAlert(error.message, 'Error', 'error');
     } finally {
       setLoading(false);
     }
@@ -111,13 +114,44 @@ const UserProfilePage = () => {
     navigate('/login');
   };
 
+  const handleBack = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate('/', { replace: true });
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmed = await showConfirm(
+      '¿Estás seguro de que deseas eliminar tu cuenta? Esta acción no se puede deshacer y perderás todos tus eventos y datos.',
+      'Eliminar Cuenta',
+      { status: 'error', confirmText: 'Eliminar Definitivamente', cancelText: 'Cancelar' }
+    );
+
+    if (confirmed) {
+      setLoading(true);
+      try {
+        await dataService.deleteUser(user.id);
+        signOut();
+        navigate('/login');
+        showAlert('Cuenta eliminada correctamente', 'Adiós', 'success');
+      } catch (error) {
+        console.error('Error al eliminar cuenta:', error);
+        showAlert(error.message, 'Error', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   return (
     <div className="flex h-screen w-full flex-col bg-background-light dark:bg-background-dark overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-4 p-4 z-10 sticky top-0 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md">
         <button 
-          onClick={() => navigate(-1)}
-          className="size-10 -ml-2 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+          onClick={handleBack}
+          className="size-10 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
         >
           <span className="material-symbols-outlined text-slate-900 dark:text-white">arrow_back</span>
         </button>
@@ -259,6 +293,21 @@ const UserProfilePage = () => {
               </div>
             </div>
 
+            {/* Family Group Navigation */}
+            <button 
+              onClick={() => navigate('/family-group')}
+              className="w-full bg-white dark:bg-surface-dark rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-4 hover:shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer group text-left"
+            >
+              <div className="size-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                <span className="material-symbols-outlined">group</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">Grupo Familiar</p>
+                <p className="text-xs text-slate-500 font-medium">Gestionar miembros y permisos</p>
+              </div>
+              <span className="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors">chevron_right</span>
+            </button>
+
             {/* Stats */}
             <div className="grid grid-cols-2 gap-4">
               <button 
@@ -324,7 +373,18 @@ const UserProfilePage = () => {
                   Cerrar Sesión
                 </button>
               )}
+
+              {!isEditing && (
+                <button 
+                  onClick={handleDeleteAccount}
+                  className="w-full py-4 px-6 bg-red-50 dark:bg-red-900/10 text-red-500 font-bold rounded-2xl hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors flex items-center justify-center gap-2 mt-4"
+                >
+                  <span className="material-symbols-outlined">delete_forever</span>
+                  Eliminar Cuenta
+                </button>
+              )}
             </div>
+
           </div>
         </div>
       </div>

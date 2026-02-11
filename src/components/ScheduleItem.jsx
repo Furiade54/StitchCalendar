@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { EVENT_STATUS } from '../data/mockData';
 
-const ScheduleItem = ({ icon, title, time, date, rawDate, showDate, colorClass, iconBgClass, status, isImportant, onClick }) => {
+const ScheduleItem = ({ icon, title, time, date, rawDate, showDate, colorClass, iconBgClass, status, isImportant, owner, isShared, onClick }) => {
   const isCompleted = status === EVENT_STATUS.COMPLETED;
   const isCancelled = status === EVENT_STATUS.CANCELLED;
   
@@ -92,16 +92,27 @@ const ScheduleItem = ({ icon, title, time, date, rawDate, showDate, colorClass, 
         <p className={titleClasses}>
           {title}
         </p>
-        <p className={timeClasses}>
-          {showDate && date && (
-            <>
-              <span className={isToday ? "text-emerald-600 dark:text-emerald-400" : "text-slate-600 dark:text-slate-300"}>{date}</span>
-              <span className="text-slate-300 mx-1">•</span>
-            </>
-          )}
-          {isCancelled ? <span className="text-red-500 font-medium">Cancelado</span> : time}
-        </p>
+        <div className="flex items-center gap-2 mt-0.5">
+            <p className={timeClasses}>
+            {showDate && date && (
+                <>
+                <span className={isToday ? "text-emerald-600 dark:text-emerald-400" : "text-slate-600 dark:text-slate-300"}>{date}</span>
+                <span className="text-slate-300 mx-1">•</span>
+                </>
+            )}
+            {time}
+            </p>
+            {isShared && owner && (
+                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 rounded-md border border-indigo-100 dark:border-indigo-800/50">
+                    <span className="material-symbols-outlined text-[10px] text-indigo-500 dark:text-indigo-400">group</span>
+                    <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-300 truncate max-w-[80px]">
+                        {owner.full_name?.split(' ')[0] || 'Compartido'}
+                    </span>
+                </div>
+            )}
+        </div>
       </div>
+      
       <span className={statusIconClasses}>
         {isCompleted ? 'check_circle' : 
          isCancelled ? 'cancel' : 

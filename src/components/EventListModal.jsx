@@ -97,15 +97,17 @@ const EventListModal = ({ isOpen, onClose, day, currentDate, onEventSelect, user
         )}
 
         {/* Floating Action Button for adding new event */}
-        <button
-          onClick={() => {
-            onCreateEvent();
-            onClose();
-          }}
-          className="absolute bottom-6 right-6 size-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-20"
-        >
-          <span className="material-symbols-outlined text-3xl">add</span>
-        </button>
+        {onCreateEvent && (
+          <button
+            onClick={() => {
+              onCreateEvent();
+              onClose();
+            }}
+            className="absolute bottom-6 right-6 size-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-20"
+          >
+            <span className="material-symbols-outlined text-3xl">add</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -118,7 +120,7 @@ EventListModal.propTypes = {
   currentDate: PropTypes.object.isRequired,
   onEventSelect: PropTypes.func.isRequired,
   userId: PropTypes.string.isRequired,
-  onCreateEvent: PropTypes.func.isRequired
+  onCreateEvent: PropTypes.func
 };
 
 export default EventListModal;

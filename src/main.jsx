@@ -7,12 +7,12 @@ import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
 import 'material-symbols/outlined.css'
 import App from './App.jsx'
-import { AuthProvider } from './context/AuthContext'
+import { AppProviders } from './components/AppProviders'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AuthProvider>
+    <AppProviders>
       <App />
-    </AuthProvider>
+    </AppProviders>
   </StrictMode>,
 )

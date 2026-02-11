@@ -66,6 +66,8 @@ const Schedule = ({ selectedDay, currentDate, onEventSelect, refreshKey, userId,
                 iconBgClass={item.iconBgClass}
                 status={item.status || (item.isCompleted ? EVENT_STATUS.COMPLETED : EVENT_STATUS.SCHEDULED)}
                 isImportant={item.isImportant}
+                owner={item.owner}
+                isShared={item.user_id !== userId}
                 onClick={() => onEventSelect(item)}
               />
             ))

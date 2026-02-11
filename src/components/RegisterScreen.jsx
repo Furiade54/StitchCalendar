@@ -84,12 +84,14 @@ const RegisterScreen = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label htmlFor="full-name-register" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
               Nombre Completo
             </label>
             <input
+              id="full-name-register"
               type="text"
               name="full_name"
+              autoComplete="name"
               value={formData.full_name}
               onChange={handleChange}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
@@ -98,12 +100,14 @@ const RegisterScreen = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label htmlFor="email-register" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
               Correo Electrónico
             </label>
             <input
+              id="email-register"
               type="email"
               name="email"
+              autoComplete="email"
               value={formData.email}
               onChange={handleChange}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
@@ -112,12 +116,14 @@ const RegisterScreen = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label htmlFor="password-register" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
               Contraseña
             </label>
             <input
+              id="password-register"
               type="password"
               name="password"
+              autoComplete="new-password"
               value={formData.password}
               onChange={handleChange}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
@@ -126,12 +132,14 @@ const RegisterScreen = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label htmlFor="confirm-password-register" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
               Confirmar Contraseña
             </label>
             <input
+              id="confirm-password-register"
               type="password"
               name="confirmPassword"
+              autoComplete="new-password"
               value={formData.confirmPassword}
               onChange={handleChange}
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
