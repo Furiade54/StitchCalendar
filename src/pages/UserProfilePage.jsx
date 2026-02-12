@@ -3,13 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../context/FeedbackContext';
 import { dataService } from '../services/dataService';
+import { storageService } from '../services/storageService';
 
 const UserProfilePage = () => {
   const { user, signOut, updateUser } = useAuth();
-  const { showAlert } = useFeedback();
+  const { showAlert, showConfirm } = useFeedback();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  const fileInputRef = React.useRef(null);
   const [stats, setStats] = useState({ completedTasks: 0, upcomingEvents: 0 });
   const [formData, setFormData] = useState({
     full_name: '',
@@ -21,8 +25,9 @@ const UserProfilePage = () => {
     currentPassword: ''
   });
 
+  // Update form data when user changes, but only if not editing to avoid overwriting inputs
   useEffect(() => {
-    if (user) {
+    if (user && !isEditing) {
       setFormData({
         full_name: user.full_name || '',
         username: user.username || '',
@@ -32,20 +37,32 @@ const UserProfilePage = () => {
         confirmPassword: '',
         currentPassword: ''
       });
+      setImgError(false);
+    }
+  }, [user, isEditing]);
 
-      // Fetch user stats
+  // Fetch user stats separately to avoid unnecessary re-fetches
+  useEffect(() => {
+    if (user?.id) {
+      let mounted = true;
       const fetchStats = async () => {
         try {
           const data = await dataService.getUserStats(user.id);
-          setStats(data);
+          if (mounted) {
+            setStats(data);
+          }
         } catch (error) {
           console.error('Error fetching user stats:', error);
         }
       };
       
       fetchStats();
+      
+      return () => {
+        mounted = false;
+      };
     }
-  }, [user]);
+  }, [user?.id]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -122,6 +139,45 @@ const UserProfilePage = () => {
     }
   };
 
+  const handleFileClick = () => {
+    if (isEditing && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validation
+    if (!file.type.startsWith('image/')) {
+      showAlert('Por favor selecciona un archivo de imagen válido', 'Error', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) { // 5MB
+      showAlert('La imagen no debe superar los 5MB', 'Error', 'error');
+      return;
+    }
+
+    setUploading(true);
+    setImgError(false);
+    try {
+      const publicUrl = await storageService.uploadFile(file, `avatars/${user.id}`);
+      console.log('Avatar uploaded, public URL:', publicUrl);
+      setFormData(prev => ({ ...prev, avatar_url: publicUrl }));
+      showAlert('Imagen subida correctamente', 'Éxito', 'success');
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      showAlert('Error al subir la imagen', 'Error', 'error');
+    } finally {
+      setUploading(false);
+      // Reset input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleDeleteAccount = async () => {
     const confirmed = await showConfirm(
       '¿Estás seguro de que deseas eliminar tu cuenta? Esta acción no se puede deshacer y perderás todos tus eventos y datos.',
@@ -161,16 +217,54 @@ const UserProfilePage = () => {
       <div className="flex-1 overflow-y-auto px-4 pb-20">
         <div className="flex flex-col items-center pt-8 pb-8">
           {/* Avatar */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept="image/*" 
+            onChange={handleFileChange} 
+          />
           <div className="relative mb-6">
-            <div className="size-24 rounded-full bg-primary/10 flex items-center justify-center text-primary text-4xl font-bold overflow-hidden shadow-xl ring-4 ring-white dark:ring-surface-dark">
-              {formData.avatar_url && formData.avatar_url.startsWith('http') ? (
-                <img src={formData.avatar_url} alt={formData.full_name} className="w-full h-full object-cover" />
+            <div 
+              onClick={handleFileClick}
+              className={`size-24 rounded-full bg-primary/10 flex items-center justify-center text-primary text-4xl font-bold overflow-hidden shadow-xl ring-4 ring-white dark:ring-surface-dark relative ${isEditing ? 'cursor-pointer hover:opacity-90' : ''} transition-all`}
+            >
+              {uploading ? (
+                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20">
+                    <div className="size-8 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                 </div>
+              ) : null}
+              
+              {formData.avatar_url && formData.avatar_url.startsWith('http') && !imgError ? (
+                <img 
+                  src={formData.avatar_url} 
+                  alt={formData.full_name} 
+                  className="w-full h-full object-cover" 
+                  onError={(e) => {
+                    console.error('Error loading avatar image:', formData.avatar_url, e);
+                    setImgError(true);
+                  }}
+                />
               ) : (
                 <span className="material-symbols-outlined text-5xl">
-                  {formData.avatar_url || 'account_circle'}
+                  {formData.avatar_url && !formData.avatar_url.startsWith('http') ? formData.avatar_url : 'account_circle'}
                 </span>
               )}
+              
+              {isEditing && !uploading && (
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                  <span className="material-symbols-outlined text-white text-3xl">photo_camera</span>
+                </div>
+              )}
             </div>
+            {isEditing && (
+              <button 
+                onClick={handleFileClick}
+                className="absolute bottom-0 right-0 p-2 bg-primary text-white rounded-full shadow-lg hover:bg-primary-dark transition-colors z-10"
+              >
+                <span className="material-symbols-outlined text-sm">edit</span>
+              </button>
+            )}
           </div>
           
           {isEditing ? (

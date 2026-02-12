@@ -45,6 +45,12 @@ const RegisterScreen = () => {
       return;
     }
 
+    // Add validation for full_name length to match Database constraint
+    if (formData.full_name.trim().length < 3) {
+      setError('El nombre completo debe tener al menos 3 caracteres');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { dataService } from '../services/dataService';
 import { useFeedback } from '../context/FeedbackContext';
 import EventTypeModal from '../components/EventTypeModal';
@@ -7,6 +8,7 @@ import EventTypeModal from '../components/EventTypeModal';
 const EventTypesPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const { showConfirm } = useFeedback();
   const [eventTypes, setEventTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,12 +24,15 @@ const EventTypesPage = () => {
   }, [location]);
   
   useEffect(() => {
-    loadEventTypes();
-  }, []);
+    if (user) {
+      loadEventTypes();
+    }
+  }, [user]);
 
   const loadEventTypes = async () => {
     try {
-      const types = await dataService.getEventTypes();
+      setLoading(true);
+      const types = await dataService.getEventTypes(user.id);
       setEventTypes(types);
     } catch (error) {
       console.error('Error al cargar tipos de eventos', error);
@@ -57,7 +62,7 @@ const EventTypesPage = () => {
 
     if (confirmed) {
       try {
-        await dataService.deleteEventType(id);
+        await dataService.deleteEventType(id, user.id);
         loadEventTypes();
       } catch (error) {
         console.error('Error al eliminar el tipo de evento', error);
@@ -68,9 +73,9 @@ const EventTypesPage = () => {
   const handleSave = async (typeData) => {
     try {
       if (selectedType) {
-        await dataService.updateEventType(selectedType.id, typeData);
+        await dataService.updateEventType(selectedType.id, typeData, user.id);
       } else {
-        await dataService.createEventType(typeData);
+        await dataService.createEventType(typeData, user.id);
       }
       
       loadEventTypes();

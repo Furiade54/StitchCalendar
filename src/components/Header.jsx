@@ -54,11 +54,15 @@ const Header = ({ currentDate, onMenuClick, selectedMemberId, onMemberSelect, on
                onClick={() => setIsFamilyMenuOpen(!isFamilyMenuOpen)}
                className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border border-transparent hover:bg-slate-100 dark:hover:bg-white/10 transition-all focus:outline-none active:scale-95 group"
              >
-                <div className="relative">
-                    <span className="material-symbols-outlined text-primary text-[28px]">
-                        {activeMember?.avatar_url || 'account_circle'}
-                    </span>
-                    <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full border border-slate-100 dark:border-slate-800 flex items-center justify-center size-4 shadow-sm">
+                <div className="relative size-[28px] flex items-center justify-center rounded-full overflow-hidden">
+                    {activeMember?.avatar_url && (activeMember.avatar_url.startsWith('http') || activeMember.avatar_url.startsWith('/')) ? (
+                        <img src={activeMember.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                        <span className="material-symbols-outlined text-primary text-[28px]">
+                            {activeMember?.avatar_url || 'account_circle'}
+                        </span>
+                    )}
+                    <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full border border-slate-100 dark:border-slate-800 flex items-center justify-center size-4 shadow-sm z-10">
                         <span className="material-symbols-outlined text-[10px] text-primary">expand_more</span>
                     </div>
                 </div>
@@ -83,9 +87,15 @@ const Header = ({ currentDate, onMenuClick, selectedMemberId, onMemberSelect, on
                                             : 'hover:bg-slate-50 dark:hover:bg-white/5 text-slate-700 dark:text-slate-200'
                                     }`}
                                 >
-                                    <span className="material-symbols-outlined text-2xl">
-                                        {member.avatar_url || 'account_circle'}
-                                    </span>
+                                    <div className="size-6 flex items-center justify-center rounded-full overflow-hidden flex-shrink-0">
+                                        {member.avatar_url && (member.avatar_url.startsWith('http') || member.avatar_url.startsWith('/')) ? (
+                                            <img src={member.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <span className="material-symbols-outlined text-2xl">
+                                                {member.avatar_url || 'account_circle'}
+                                            </span>
+                                        )}
+                                    </div>
                                     <span className="text-sm font-medium truncate flex-1 text-left">
                                         {member.isMe ? 'Yo' : member.full_name.split(' ')[0]}
                                     </span>

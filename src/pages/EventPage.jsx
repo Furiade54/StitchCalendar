@@ -23,6 +23,7 @@ const EventPage = () => {
   const [event, setEvent] = useState(null);
   const [eventTypes, setEventTypes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [typesLoading, setTypesLoading] = useState(true);
   const [error, setError] = useState(null);
   
   const [isEditing, setIsEditing] = useState(isNew);
@@ -104,6 +105,8 @@ const EventPage = () => {
         setEventTypes(types);
       } catch (err) {
         console.error('Failed to load event types', err);
+      } finally {
+        setTypesLoading(false);
       }
     };
     if (targetUserId) {
@@ -114,7 +117,7 @@ const EventPage = () => {
   // Initialize data
   useEffect(() => {
     // Wait for event types to be loaded before initializing new event
-    if (eventTypes.length === 0 && isLoading) return;
+    if (typesLoading) return;
 
     const loadEvent = async () => {
       if (isNew) {
@@ -168,7 +171,7 @@ const EventPage = () => {
     };
 
     loadEvent();
-  }, [id, isNew, location.state, targetUserId, eventTypes]);
+  }, [id, isNew, location.state, targetUserId, typesLoading]);
 
   const handleTypeChange = (typeName) => {
     const typeConfig = eventTypes.find(t => t.name === typeName);
@@ -188,12 +191,16 @@ const EventPage = () => {
       endDate: newEndDate,
       icon: typeConfig.icon,
       colorClass: typeConfig.color_class,
-      iconBgClass: typeConfig.icon_bg_class
+      iconBgClass: typeConfig.icon_bg_class,
+      isRecurring: typeConfig.default_recurring || editedEvent.isRecurring // Apply default if set, otherwise keep current
     });
   };
 
   const currentEventTypeConfig = eventTypes.find(t => t.name === editedEvent?.eventType) || {};
-  const requiresEndTime = currentEventTypeConfig.requires_end_time !== false; // Default to true if not found
+  const requiresEndTime = currentEventTypeConfig.requires_end_time !== false; 
+  const requiresLocation = currentEventTypeConfig.requires_location === true;
+  const requiresUrl = currentEventTypeConfig.requires_url === true;
+  const defaultRecurring = currentEventTypeConfig.default_recurring === true;
 
   const handleToggleImportant = async () => {
     if (!canEdit) return; // Prevent action if read-only
@@ -353,9 +360,13 @@ const EventPage = () => {
         <div className="flex items-center gap-2">
            <button
             onClick={() => navigate('/profile')}
-            className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors overflow-hidden"
           >
-             <span className="material-symbols-outlined text-xl">{user.avatar_url || 'account_circle'}</span>
+             {user?.avatar_url && (user.avatar_url.startsWith('http') || user.avatar_url.startsWith('/')) ? (
+                <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+             ) : (
+                <span className="material-symbols-outlined text-xl">{user?.avatar_url || 'account_circle'}</span>
+             )}
           </button>
         </div>
       </div>
@@ -499,6 +510,7 @@ const EventPage = () => {
               <div className="space-y-4 pt-2">
                  {/* Location & Meeting URL */}
                  <div className="grid grid-cols-1 gap-4">
+                    {requiresLocation && (
                     <div>
                       <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Ubicación</label>
                       <div className="relative">
@@ -512,8 +524,9 @@ const EventPage = () => {
                         />
                       </div>
                     </div>
+                    )}
 
-                    {(editedEvent.eventType === 'reunión' || editedEvent.eventType === 'meeting') && (
+                    {requiresUrl && (
                       <div>
                         <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Enlace de Reunión</label>
                         <div className="relative">

@@ -47,17 +47,19 @@ const FamilyGroupPage = () => {
     } catch (error) {
        if (error.message === "Este usuario ya pertenece a otro grupo familiar") {
            const confirmed = await showConfirm(
-               "Este usuario ya pertenece a otro grupo familiar, deseas que le enviemos una solicitud para que te una a su grupo familiar?",
-               "Unirse a Grupo Familiar",
-               { status: 'info', confirmText: 'Aceptar', cancelText: 'Cancelar' }
+               "Este usuario ya tiene su propio grupo familiar. ¿Deseas enviarle una invitación para que se una al tuyo?",
+               "Invitar al Grupo",
+               { status: 'info', confirmText: 'Enviar Invitación', cancelText: 'Cancelar' }
            );
 
            if (confirmed) {
                try {
+                   // When inviting someone who already has a family, we send a request
+                   // for THEM to join US (Invite), not for US to join THEM.
                    const response = await dataService.sendFamilyRequest(user.id, newMemberEmail);
                    setNewMemberEmail('');
                    
-                   showAlert(response.message || 'Solicitud enviada correctamente', 'Éxito', 'success');
+                   showAlert('Se ha enviado una solicitud al usuario para que se una a tu grupo familiar.', 'Solicitud Enviada', 'success');
                } catch (joinError) {
                    showAlert(joinError.message, 'Error al enviar solicitud', 'error');
                }
@@ -146,10 +148,14 @@ const FamilyGroupPage = () => {
                 ) : familyMembers.length > 0 ? (
                     familyMembers.map(member => (
                     <div key={member.id} className="bg-white dark:bg-surface-dark border border-slate-100 dark:border-slate-800 rounded-2xl p-4 flex items-center gap-4 shadow-sm group">
-                        <div className="size-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                            <span className="material-symbols-outlined text-2xl">
-                            {member.avatar_url || 'account_circle'}
-                            </span>
+                        <div className="size-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 overflow-hidden">
+                            {member.avatar_url && (member.avatar_url.startsWith('http') || member.avatar_url.startsWith('/')) ? (
+                                <img src={member.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="material-symbols-outlined text-2xl">
+                                    {member.avatar_url || 'account_circle'}
+                                </span>
+                            )}
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="font-bold text-slate-900 dark:text-white truncate">{member.full_name}</p>

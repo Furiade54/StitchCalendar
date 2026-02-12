@@ -173,21 +173,15 @@ function CalendarPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsNotificationsOpen(true)}
-            title="Notificaciones"
-            className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors relative"
-          >
-            <span className="material-symbols-outlined text-xl">notifications</span>
-            {notifications.length > 0 && (
-              <span className="absolute top-0 right-0 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-800"></span>
-            )}
-          </button>
-          <button
             onClick={() => navigate('/profile')}
             title="Mi Perfil"
-            className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            className="size-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-primary hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors overflow-hidden"
           >
-             <span className="material-symbols-outlined text-xl">{user.avatar_url}</span>
+             {user?.avatar_url && (user.avatar_url.startsWith('http') || user.avatar_url.startsWith('/')) ? (
+                <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+             ) : (
+                <span className="material-symbols-outlined text-xl">{user?.avatar_url || 'account_circle'}</span>
+             )}
           </button>
         </div>
       </div>

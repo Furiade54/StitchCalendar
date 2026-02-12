@@ -53,9 +53,15 @@ const PermissionsModal = ({ isOpen, onClose, currentUser, familyMembers, onSave 
                        : 'border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
                    }`}
                  >
-                   <span className="material-symbols-outlined text-2xl text-slate-400">
-                     {member.avatar_url || 'account_circle'}
-                   </span>
+                   <div className="size-8 flex items-center justify-center rounded-full overflow-hidden flex-shrink-0">
+                     {member.avatar_url && (member.avatar_url.startsWith('http') || member.avatar_url.startsWith('/')) ? (
+                         <img src={member.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                     ) : (
+                         <span className="material-symbols-outlined text-2xl text-slate-400">
+                             {member.avatar_url || 'account_circle'}
+                         </span>
+                     )}
+                   </div>
                    <div className="flex-1">
                      <p className="font-medium text-slate-900 dark:text-white">{member.full_name}</p>
                      <p className="text-xs text-slate-500">{member.email}</p>

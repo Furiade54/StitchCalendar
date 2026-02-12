@@ -12,7 +12,8 @@ export const DEFAULT_EVENT_TYPES = [
     icon: 'event',
     color_class: 'text-purple-600',
     icon_bg_class: 'bg-purple-100 dark:bg-purple-900/30',
-    requires_end_time: true
+    requires_end_time: true,
+    requires_location: true
   },
   {
     id: 'type_2',
@@ -22,7 +23,8 @@ export const DEFAULT_EVENT_TYPES = [
     icon: 'cake',
     color_class: 'text-pink-500',
     icon_bg_class: 'bg-pink-100 dark:bg-pink-900/30',
-    requires_end_time: false
+    requires_end_time: false,
+    default_recurring: true
   },
   {
     id: 'type_3',
@@ -42,7 +44,9 @@ export const DEFAULT_EVENT_TYPES = [
     icon: 'groups',
     color_class: 'text-indigo-500',
     icon_bg_class: 'bg-indigo-100 dark:bg-indigo-900/30',
-    requires_end_time: true
+    requires_end_time: true,
+    requires_location: true,
+    requires_url: true
   }
 ];
 
