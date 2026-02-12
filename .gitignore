@@ -26,3 +26,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# SQL and Notes
+*.sql
+!supabase/migrations/*.sql
+*.md
+!README.md
