@@ -40,8 +40,7 @@ const Header = ({ currentDate, onMenuClick, selectedMemberId, onMemberSelect, on
   return (
     <header className="flex items-center justify-between px-4 py-4 z-10 sticky top-0 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md">
       <button 
-        onClick={onMenuClick}
-        className="size-10 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors flex-shrink-0"
+        onClick={onMenuClick}        className="size-10 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors flex-shrink-0"
       >
         <span className="material-symbols-outlined text-primary">menu</span>
       </button>

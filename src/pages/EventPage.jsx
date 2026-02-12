@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { EVENT_STATUS } from '../data/mockData';
+import { EVENT_STATUS } from '../utils/constants';
 import { dataService } from '../services/dataService';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../context/FeedbackContext';
@@ -16,7 +16,28 @@ const EventPage = () => {
   // Determine effective user ID (context)
   // If passed in state, use it; otherwise default to logged-in user
   const targetUserId = location.state?.userId || user?.id;
-  const canEdit = targetUserId === user?.id || (user && dataService.canEdit(targetUserId, user.id));
+  const [canEdit, setCanEdit] = useState(false);
+
+  useEffect(() => {
+    const checkPermission = async () => {
+      if (!user) {
+        setCanEdit(false);
+        return;
+      }
+      if (targetUserId === user.id) {
+        setCanEdit(true);
+        return;
+      }
+      try {
+        const permitted = await dataService.canEdit(targetUserId, user.id);
+        setCanEdit(permitted);
+      } catch (err) {
+        console.error("Error checking edit permissions:", err);
+        setCanEdit(false);
+      }
+    };
+    checkPermission();
+  }, [targetUserId, user]);
 
   const isNew = id === 'new';
   

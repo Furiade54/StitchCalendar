@@ -1,6 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { EVENT_STATUS } from '../data/mockData';
+import { EVENT_STATUS } from '../utils/constants';
 
 const ScheduleItem = ({ icon, title, time, date, rawDate, showDate, colorClass, iconBgClass, status, isImportant, owner, isShared, onClick }) => {
   const isCompleted = status === EVENT_STATUS.COMPLETED;

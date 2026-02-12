@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { USERS } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
 
 const LoginScreen = () => {

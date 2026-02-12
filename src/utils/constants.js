@@ -48,3 +48,50 @@ export const AVAILABLE_COLORS = [
   { name: 'Rojo', class: 'text-red-500', bg: 'bg-red-100 dark:bg-red-900/30' },
   { name: 'Verde Azulado', class: 'text-teal-500', bg: 'bg-teal-100 dark:bg-teal-900/30' },
 ];
+
+export const DEFAULT_EVENT_TYPES = [
+  {
+    id: 'type_1',
+    user_id: 'user_1',
+    name: EVENT_TYPES.APPOINTMENT,
+    label: 'Cita',
+    icon: 'event',
+    color_class: 'text-purple-600',
+    icon_bg_class: 'bg-purple-100 dark:bg-purple-900/30',
+    requires_end_time: true,
+    requires_location: true
+  },
+  {
+    id: 'type_2',
+    user_id: 'user_1',
+    name: 'cumpleaños', // Lowercase for compatibility
+    label: 'Cumpleaños',
+    icon: 'cake',
+    color_class: 'text-pink-500',
+    icon_bg_class: 'bg-pink-100 dark:bg-pink-900/30',
+    requires_end_time: false,
+    default_recurring: true
+  },
+  {
+    id: 'type_3',
+    user_id: 'user_1',
+    name: 'recordatorio',
+    label: 'Recordatorio',
+    icon: 'notifications',
+    color_class: 'text-orange-500',
+    icon_bg_class: 'bg-orange-100 dark:bg-orange-900/30',
+    requires_end_time: false
+  },
+  {
+    id: 'type_4',
+    user_id: 'user_1',
+    name: 'reunión',
+    label: 'Reunión',
+    icon: 'groups',
+    color_class: 'text-indigo-500',
+    icon_bg_class: 'bg-indigo-100 dark:bg-indigo-900/30',
+    requires_end_time: true,
+    requires_location: true,
+    requires_url: true
+  }
+];

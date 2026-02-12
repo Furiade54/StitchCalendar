@@ -94,7 +94,29 @@ function CalendarPage() {
   const currentUserId = selectedMemberId || user?.id;
   
   // Check permission: Owner OR Authorized Editor
-  const canEdit = currentUserId === user?.id || (user && dataService.canEdit(currentUserId, user.id));
+  const [canEdit, setCanEdit] = useState(false);
+
+  useEffect(() => {
+    const checkPermission = async () => {
+      if (!user) {
+        setCanEdit(false);
+        return;
+      }
+      if (currentUserId === user.id) {
+        setCanEdit(true);
+        return;
+      }
+      try {
+        const permitted = await dataService.canEdit(currentUserId, user.id);
+        setCanEdit(permitted);
+      } catch (err) {
+        console.error("Error checking edit permissions:", err);
+        setCanEdit(false);
+      }
+    };
+    
+    checkPermission();
+  }, [currentUserId, user]);
 
   const handlePrevMonth = (arg) => {
     // If arg is a number (day), use it; otherwise (e.g. event object), treat as null

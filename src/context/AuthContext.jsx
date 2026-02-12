@@ -30,11 +30,17 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         console.error('Error initializing auth:', error);
         // Notify user about connection issues
-        if (error.message === 'Session fetch timeout') {
+        if (error.message === 'Session fetch timeout' || error.message.includes('timeout')) {
            showAlert(
-             'La conexión con el servidor está tardando demasiado. Es posible que experimentes lentitud o necesites recargar la página.', 
-             'Conexión Lenta', 
-             'warning'
+             'No se pudo conectar con Supabase. Verifica tu conexión a internet y que las credenciales en .env sean correctas.', 
+             'Error de Conexión', 
+             'error'
+           );
+        } else {
+             showAlert(
+             `Error de inicialización: ${error.message}`, 
+             'Error', 
+             'error'
            );
         }
       } finally {

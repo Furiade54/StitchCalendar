@@ -1,6 +1,6 @@
 import React from 'react';
 import CalendarDay from './CalendarDay';
-import { WEEK_DAYS } from '../data/mockData';
+import { WEEK_DAYS } from '../utils/constants';
 import { useCalendar } from '../hooks/useCalendar';
 
 const Calendar = ({ selectedDay, onDaySelect, currentDate, onNextMonth, onPrevMonth, onGoToToday, userId }) => {

@@ -1,7 +1,7 @@
 import React from 'react';
 import ScheduleItem from './ScheduleItem';
 import { useSchedule } from '../hooks/useSchedule';
-import { EVENT_STATUS } from '../data/mockData';
+import { EVENT_STATUS } from '../utils/constants';
 
 const formatTimeRange = (start, end) => {
   if (!start || !end) return null;
