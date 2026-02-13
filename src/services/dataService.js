@@ -100,12 +100,66 @@ export const dataService = {
             const [result1, result2] = await Promise.all([query1, query2]);
 
             // Filter out "Aborted" errors which happen on rapid navigation
-            if (result1.error && result1.error.code !== '20') console.error("Error checking overdue events (1):", result1.error);
-            if (result2.error && result2.error.code !== '20') console.error("Error checking overdue events (2):", result2.error);
+            // Also ignore RLS errors (42501) or connection errors to avoid console noise
+            const isIgnorableError = (err) => {
+                if (!err) return false;
+                // Code 20 is generic abort in some versions, but standard is different.
+                // We check for network errors or known safe errors
+                return err.code === 'PGRST116' || // no rows (not applicable here but good practice)
+                       err.message?.includes('fetch') || 
+                       err.message?.includes('abort');
+            };
+
+            if (result1.error && !isIgnorableError(result1.error)) {
+                console.warn("Maintenance check (1) skipped:", result1.error.message);
+            }
+            if (result2.error && !isIgnorableError(result2.error)) {
+                console.warn("Maintenance check (2) skipped:", result2.error.message);
+            }
 
             const events = [...(result1.data || []), ...(result2.data || [])];
 
             if (!events || events.length === 0) return;
+
+            // NEW: Use RPC for batch status updates to improve performance and consistency
+            // If the RPC fails (e.g., doesn't exist yet), fall back to client-side loop
+            try {
+                // We only need IDs for the RPC
+                // Filter locally first to minimize payload
+                const toCompleteIds = [];
+                const toOverdueIds = [];
+
+                events.forEach(event => {
+                    const typeName = event.event_types ? event.event_types.name.toLowerCase() : '';
+                    const isAutoCompletable = 
+                        typeName === 'recordatorio' || 
+                        typeName === 'cumpleaños' ||
+                        typeName === 'reminder' ||
+                        typeName === 'birthday' ||
+                        !event.event_types;
+
+                    if (isAutoCompletable) {
+                        if (event.status !== 'completed') {
+                            toCompleteIds.push(event.id);
+                        }
+                    } else {
+                        if (event.status === 'scheduled' || event.status === 'pending') {
+                            toOverdueIds.push(event.id);
+                        }
+                    }
+                });
+
+                if (toCompleteIds.length > 0) {
+                     await supabase.rpc('update_event_status_batch', { event_ids: toCompleteIds, new_status: 'completed' });
+                }
+                if (toOverdueIds.length > 0) {
+                     await supabase.rpc('update_event_status_batch', { event_ids: toOverdueIds, new_status: 'overdue' });
+                }
+                return; // RPC success, exit
+            } catch (rpcError) {
+                console.warn("RPC update_event_status_batch failed/missing, using legacy loop:", rpcError.message);
+                // Fallthrough to legacy logic below
+            }
 
             const toComplete = [];
             const toOverdue = [];
@@ -143,17 +197,24 @@ export const dataService = {
 
             if (promises.length > 0) {
                 await Promise.all(promises);
-                console.log(`Auto-maintained: ${toComplete.length} completed, ${toOverdue.length} overdue.`);
+                // console.log(`Auto-maintained: ${toComplete.length} completed, ${toOverdue.length} overdue.`);
             }
         } catch (err) {
-            // Ignore abort errors
+            // Silently ignore maintenance errors to prevent UI noise
             if (err.name !== 'AbortError') {
-                console.error("Auto-maintenance error:", err);
+                // console.warn("Auto-maintenance skipped:", err);
             }
         }
     },
 
   getEventTypes: async (userId) => {
+       const { data: sessionData } = await supabase.auth.getSession();
+       const currentAuthId = sessionData?.session?.user?.id;
+       
+       if (currentAuthId && userId && currentAuthId !== userId) {
+           console.warn(`[getEventTypes] Mismatch: auth.uid=${currentAuthId}, param.userId=${userId}`);
+       }
+
        const { data, error } = await supabase
          .from('event_types')
          .select('*')
@@ -162,7 +223,9 @@ export const dataService = {
        if (error) throw error;
 
        // If no types exist for this user, seed default types
-       if (data.length === 0 && DEFAULT_EVENT_TYPES.length > 0) {
+       // SECURITY: Only seed if the requested userId matches the authenticated user
+       if (data.length === 0 && DEFAULT_EVENT_TYPES.length > 0 && currentAuthId === userId) {
+           console.log(`[getEventTypes] Seeding default types for user ${userId}`);
            const typesToInsert = DEFAULT_EVENT_TYPES.map(t => ({
                user_id: userId,
                name: t.name,
@@ -176,6 +239,7 @@ export const dataService = {
                default_recurring: t.default_recurring
            }));
 
+           // Use upsert() instead of insert() to handle race conditions or hidden duplicates
            const { data: newTypes, error: insertError } = await supabase
                .from('event_types')
                .upsert(typesToInsert, { onConflict: 'user_id, name', ignoreDuplicates: true })
@@ -221,6 +285,14 @@ export const dataService = {
   },
 
   createEventType: async (newType, userId) => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const currentAuthId = sessionData?.session?.user?.id;
+        
+        if (currentAuthId && userId && currentAuthId !== userId) {
+             console.error(`[createEventType] Security mismatch: auth.uid=${currentAuthId} vs param.userId=${userId}`);
+             throw new Error('Security violation: Cannot create event types for another user.');
+        }
+
         const dbType = {
             name: newType.name,
             color_class: newType.colorClass || newType.color, // handle both
@@ -259,6 +331,14 @@ export const dataService = {
   },
 
   updateEventType: async (typeId, updatedType, userId) => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const currentAuthId = sessionData?.session?.user?.id;
+        
+        if (currentAuthId && userId && currentAuthId !== userId) {
+            console.error(`[updateEventType] Security mismatch: auth.uid=${currentAuthId} vs param.userId=${userId}`);
+            throw new Error('Security violation: Cannot update event types for another user.');
+        }
+
         const dbUpdates = {};
         if (updatedType.name) dbUpdates.name = updatedType.name;
         if (updatedType.colorClass || updatedType.color) dbUpdates.color_class = updatedType.colorClass || updatedType.color;
@@ -552,42 +632,42 @@ export const dataService = {
   },
 
   getUserStats: async (userId) => {
-        // 1. Maintenance: Update past events
-        await dataService.checkAndMarkOverdue(userId);
-
-        const now = new Date().toISOString();
-        
+        // 1. Maintenance: Update past events (fire and forget)
         try {
-            // Run queries in parallel for better performance
-            const queryCompleted = supabase
-                .from('events')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId)
-                .eq('status', 'completed');
+            await dataService.checkAndMarkOverdue(userId);
+        } catch (e) {
+            // Ignore maintenance errors
+        }
 
-            const queryUpcoming = supabase
-                .from('events')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId)
-                .neq('status', 'cancelled')
-                .gt('start_date', now);
+        try {
+            // Optimization: Use RPC to get all stats in one DB call
+            const { data, error } = await supabase.rpc('get_user_stats', { target_user_id: userId });
 
-            const [resultCompleted, resultUpcoming] = await Promise.all([queryCompleted, queryUpcoming]);
-
-            // Filter out abort errors (code 20)
-            if (resultCompleted.error && resultCompleted.error.code !== '20') throw resultCompleted.error;
-            if (resultUpcoming.error && resultUpcoming.error.code !== '20') throw resultUpcoming.error;
+            if (error) throw error;
 
             return {
-              completedTasks: resultCompleted.count || 0,
-              upcomingEvents: resultUpcoming.count || 0
+              completedTasks: data.completedTasks || 0,
+              upcomingEvents: data.upcomingEvents || 0
             };
         } catch (err) {
-            // Ignore abort errors
-            if (err.name === 'AbortError' || err.code === '20') {
+            console.warn("RPC get_user_stats failed, falling back to legacy queries:", err.message);
+            // Fallback to client-side counting (Legacy)
+            try {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const todayIso = today.toISOString();
+
+                const [resultCompleted, resultUpcoming] = await Promise.all([
+                    supabase.from('events').select('id', { count: 'exact', head: true }).eq('user_id', userId).in('status', ['completed', 'overdue']),
+                    supabase.from('events').select('id', { count: 'exact', head: true }).eq('user_id', userId).neq('status', 'cancelled').neq('status', 'completed').neq('status', 'overdue').gte('start_date', todayIso)
+                ]);
+                return {
+                    completedTasks: resultCompleted.count || 0,
+                    upcomingEvents: resultUpcoming.count || 0
+                };
+            } catch (fallbackErr) {
                 return { completedTasks: 0, upcomingEvents: 0 };
             }
-            throw err;
         }
   },
 
@@ -595,7 +675,7 @@ export const dataService = {
         let query = supabase
             .from('events')
             .select('*, event_types(*), profiles!events_user_id_fkey(*)')
-            .eq('status', 'completed')
+            .in('status', ['completed', 'overdue'])
             .order('start_date', { ascending: false });
 
         if (userId) {
@@ -620,6 +700,7 @@ export const dataService = {
       if (!userData?.family_id) return [];
 
       // 2. Get members
+      // Ensure family_id is treated as UUID if strict typing is enforced, though JS is loose.
       const { data: members, error: membersError } = await supabase
         .from('profiles')
         .select('*')
@@ -631,22 +712,22 @@ export const dataService = {
   },
 
   addFamilyMember: async (currentUserId, email) => {
+      // RPC handles UUID generation and linking
       const { data, error } = await supabase.rpc('add_family_member', { target_email: email });
       if (error) throw error;
       return data;
   },
 
   removeFamilyMember: async (currentUserId, targetMemberId) => {
+      // RPC ensures secure removal
       const { data, error } = await supabase.rpc('remove_family_member', { target_user_id: targetMemberId });
       if (error) throw error;
       return { success: true };
   },
 
   leaveFamilyGroup: async (userId) => {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ family_id: null })
-        .eq('id', userId);
+      // RPC handles self-removal cleanly
+      const { error } = await supabase.rpc('remove_family_member', { target_user_id: userId });
       if (error) throw error;
       return { success: true };
   },
@@ -693,36 +774,5 @@ export const dataService = {
       });
       if (error) throw error;
       return { success: true };
-  },
-
-  deleteUser: async (userId) => {
-        console.log('Attempting to delete user from Supabase:', userId);
-        
-        // 1. Delete Events
-        const { error: eventsError } = await supabase
-            .from('events')
-            .delete()
-            .eq('user_id', userId);
-        if (eventsError) throw eventsError;
-
-        // 2. Delete Event Types
-        const { error: typesError } = await supabase
-            .from('event_types')
-            .delete()
-            .eq('user_id', userId);
-        if (typesError) throw typesError;
-
-        // 3. Delete Notifications
-        await supabase.from('notifications').delete().eq('from_user_id', userId);
-        await supabase.from('notifications').delete().eq('to_user_id', userId);
-
-        // 4. Delete Profile
-        const { error: profileError } = await supabase
-            .from('profiles')
-            .delete()
-            .eq('id', userId);
-        if (profileError) throw profileError;
-        
-        return { success: true };
   }
 };

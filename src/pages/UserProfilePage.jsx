@@ -178,29 +178,6 @@ const UserProfilePage = () => {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    const confirmed = await showConfirm(
-      '¿Estás seguro de que deseas eliminar tu cuenta? Esta acción no se puede deshacer y perderás todos tus eventos y datos.',
-      'Eliminar Cuenta',
-      { status: 'error', confirmText: 'Eliminar Definitivamente', cancelText: 'Cancelar' }
-    );
-
-    if (confirmed) {
-      setLoading(true);
-      try {
-        await dataService.deleteUser(user.id);
-        signOut();
-        navigate('/login');
-        showAlert('Cuenta eliminada correctamente', 'Adiós', 'success');
-      } catch (error) {
-        console.error('Error al eliminar cuenta:', error);
-        showAlert(error.message, 'Error', 'error');
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
   return (
     <div className="flex h-screen w-full flex-col bg-background-light dark:bg-background-dark overflow-hidden">
       {/* Header */}
@@ -408,9 +385,9 @@ const UserProfilePage = () => {
                 onClick={() => navigate('/completed-tasks')}
                 className="bg-white dark:bg-surface-dark rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 text-center hover:shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer group"
               >
-                <span className="material-symbols-outlined text-primary mb-2 text-2xl group-hover:scale-110 transition-transform">check_circle</span>
+                <span className="material-symbols-outlined text-primary mb-2 text-2xl group-hover:scale-110 transition-transform">event_busy</span>
                 <p className="text-2xl font-bold text-slate-900 dark:text-white">{stats.completedTasks}</p>
-                <p className="text-xs text-slate-500 font-medium group-hover:text-primary transition-colors">Tareas Completadas</p>
+                <p className="text-xs text-slate-500 font-medium group-hover:text-primary transition-colors">Eventos Vencidos</p>
               </button>
               <button 
                 onClick={() => navigate('/')}
@@ -465,16 +442,6 @@ const UserProfilePage = () => {
                 >
                   <span className="material-symbols-outlined">logout</span>
                   Cerrar Sesión
-                </button>
-              )}
-
-              {!isEditing && (
-                <button 
-                  onClick={handleDeleteAccount}
-                  className="w-full py-4 px-6 bg-red-50 dark:bg-red-900/10 text-red-500 font-bold rounded-2xl hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors flex items-center justify-center gap-2 mt-4"
-                >
-                  <span className="material-symbols-outlined">delete_forever</span>
-                  Eliminar Cuenta
                 </button>
               )}
             </div>

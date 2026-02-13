@@ -55,7 +55,9 @@ const LoginScreen = () => {
         setShowRegistrationPrompt(true);
       } else {
         console.error('Auth failed:', error);
-        setError(error.message);
+        // Clean error message for user display
+        const displayError = error.message.replace('Auth failed: Error: ', '');
+        setError(displayError);
       }
       setLoggingIn(false);
     }

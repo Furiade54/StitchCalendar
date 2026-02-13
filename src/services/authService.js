@@ -85,41 +85,51 @@ export const authService = {
     const { data, error } = await Promise.race([signInPromise, timeoutPromise]);
     
     if (error) throw error;
+
     return data;
   },
 
   signUp: async (userData) => {
     if (!supabase) throw new Error('Supabase not initialized');
 
-    // 1. Sign Up Auth User
-    const signUpPromise = supabase.auth.signUp({
-      email: userData.email,
-      password: userData.password,
-      options: {
-        data: {
-          full_name: userData.full_name,
-          username: userData.email.split('@')[0], // Default username
-          avatar_url: userData.avatar_url || 'account_circle'
+    try {
+      // 1. Sign Up Auth User
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            full_name: userData.full_name,
+            username: userData.email.split('@')[0], // Default username
+            avatar_url: userData.avatar_url || 'account_circle'
+          }
         }
-      }
-    });
+      });
 
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('La solicitud de registro ha excedido el tiempo de espera. Verifica tu conexión.')), 15000)
-    );
-
-    const { data, error } = await Promise.race([signUpPromise, timeoutPromise]);
-
-    if (error) throw error;
-    
-    // Note: Triggers in Supabase (handle_new_user) should automatically create the public.profile
-    // If trigger fails or is missing, we might need to insert manually here, but let's rely on trigger first.
-    
-    return data;
+      if (error) throw error;
+      
+      // Note: Triggers in Supabase (handle_new_user) should automatically create the public.profile
+      // If trigger fails or is missing, we might need to insert manually here, but let's rely on trigger first.
+      
+      return data;
+    } catch (error) {
+      throw error;
+    }
   },
 
   updateUser: async (userId, updates, currentPassword = null) => {
     if (!supabase) throw new Error('Supabase not initialized');
+
+    // Check for active session first
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      throw new Error('No active session found. Please log in again.');
+    }
+
+    // Verify userId matches session
+    if (session.user.id !== userId) {
+      throw new Error('Unauthorized: Cannot update another user profile.');
+    }
 
      // Update Auth Metadata
      const authUpdates = {};

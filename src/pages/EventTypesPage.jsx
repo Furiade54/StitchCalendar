@@ -32,6 +32,7 @@ const EventTypesPage = () => {
   const loadEventTypes = async () => {
     try {
       setLoading(true);
+      console.log('Loading event types for user:', user?.id);
       const types = await dataService.getEventTypes(user.id);
       setEventTypes(types);
     } catch (error) {
@@ -126,7 +127,7 @@ const EventTypesPage = () => {
                     <span className="material-symbols-outlined">{type.icon}</span>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-900 dark:text-white">{type.label}</h3>
+                    <h3 className="font-semibold text-slate-900 dark:text-white">{type.name}</h3>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-slate-500 dark:text-slate-400 capitalize">
                         {type.requires_end_time ? 'Requiere hora de fin' : 'Solo hora de inicio'}

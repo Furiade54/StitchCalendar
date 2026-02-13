@@ -4,7 +4,6 @@ import { AVAILABLE_COLORS, AVAILABLE_ICONS } from '../utils/constants';
 const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing = false }) => {
   const [formData, setFormData] = useState({
     name: '',
-    label: '',
     icon: 'event',
     color: AVAILABLE_COLORS[0],
     requires_end_time: true,
@@ -20,8 +19,7 @@ const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing
         const colorObj = AVAILABLE_COLORS.find(c => c.class === initialData.color_class) || AVAILABLE_COLORS[0];
         
         setFormData({
-            name: initialData.name,
-            label: initialData.label,
+            name: initialData.name || initialData.label, // Fallback to label if name is missing (compat)
             icon: initialData.icon,
             color: colorObj,
             requires_end_time: initialData.requires_end_time !== false,
@@ -33,7 +31,6 @@ const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing
         // Reset form for new entry
         setFormData({
             name: '',
-            label: '',
             icon: 'event',
             color: AVAILABLE_COLORS[0],
             requires_end_time: true,
@@ -46,11 +43,10 @@ const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing
   }, [isOpen, initialData]);
 
   const handleSubmit = async () => {
-    if (!formData.label) return;
+    if (!formData.name) return;
     
     const typeData = {
-      name: formData.label.toLowerCase().replace(/\s+/g, '_'),
-      label: formData.label,
+      name: formData.name.trim(), // Use name directly without slugifying
       icon: formData.icon,
       color_class: formData.color.class,
       icon_bg_class: formData.color.bg,
@@ -79,8 +75,8 @@ const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nombre</label>
             <input 
               type="text" 
-              value={formData.label}
-              onChange={(e) => setFormData({...formData, label: e.target.value})}
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
               placeholder="ej. Gimnasio, Viaje, Almuerzo"
               className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
               autoFocus

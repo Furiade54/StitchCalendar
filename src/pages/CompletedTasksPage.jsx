@@ -13,6 +13,8 @@ const CompletedTasksPage = () => {
     const fetchTasks = async () => {
       if (user) {
         try {
+          // Force maintenance check to ensure overdue events are updated
+          await dataService.checkAndMarkOverdue(user.id);
           const data = await dataService.getCompletedEvents(user.id);
           setTasks(data);
         } catch (error) {
@@ -52,7 +54,7 @@ const CompletedTasksPage = () => {
         >
           <span className="material-symbols-outlined">arrow_back</span>
         </button>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Tareas Completadas</h1>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Eventos Vencidos</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -63,10 +65,10 @@ const CompletedTasksPage = () => {
         ) : tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <div className="size-20 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
-              <span className="material-symbols-outlined text-4xl text-slate-400">task_alt</span>
+              <span className="material-symbols-outlined text-4xl text-slate-400">event_busy</span>
             </div>
-            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No hay tareas completadas</h3>
-            <p className="text-slate-500 text-sm mt-1 max-w-[200px]">Las tareas que marques como completadas aparecerán aquí.</p>
+            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No hay eventos vencidos</h3>
+            <p className="text-slate-500 text-sm mt-1 max-w-[200px]">Los eventos pasados aparecerán aquí.</p>
           </div>
         ) : (
           <div className="space-y-4 max-w-2xl mx-auto">
@@ -77,7 +79,9 @@ const CompletedTasksPage = () => {
                 className="bg-white dark:bg-surface-dark p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer"
               >
                 <div className={`size-12 rounded-full flex items-center justify-center flex-shrink-0 ${task.iconBgClass || 'bg-slate-100'} ${task.colorClass || 'text-slate-500'}`}>
-                  <span className="material-symbols-outlined text-xl">check</span>
+                  <span className="material-symbols-outlined text-xl">
+                    {task.status === 'completado' ? 'check' : 'event_busy'}
+                  </span>
                 </div>
                 
                 <div className="flex-1 min-w-0">
