@@ -801,9 +801,19 @@ export const dataService = {
                     supabase.from('events').select('id', { count: 'exact', head: true }).in('status', ['completed', 'overdue']),
                     supabase.from('events').select('id', { count: 'exact', head: true }).neq('status', 'cancelled').neq('status', 'completed').neq('status', 'overdue').gte('start_date', todayIso)
                 ]);
+                
+                const isAbort = (err) => {
+                    if (!err) return false;
+                    const msg = (err.message || '').toLowerCase();
+                    return err.name === 'AbortError' || msg.includes('abort') || err.code === 'PGRST116';
+                };
+                
+                const completed = isAbort(resultCompleted.error) ? 0 : (resultCompleted.count || 0);
+                const upcoming = isAbort(resultUpcoming.error) ? 0 : (resultUpcoming.count || 0);
+                
                 return {
-                    completedTasks: resultCompleted.count || 0,
-                    upcomingEvents: resultUpcoming.count || 0
+                    completedTasks: completed,
+                    upcomingEvents: upcoming
                 };
             } catch (fallbackErr) {
                 return { completedTasks: 0, upcomingEvents: 0 };
