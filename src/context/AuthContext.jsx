@@ -12,67 +12,86 @@ export const AuthProvider = ({ children }) => {
 
   // Initialize state from service on mount
   useEffect(() => {
+    let mounted = true;
+
+    // Listen for auth changes FIRST - this is the source of truth
+    const { data: { subscription } } = authService.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+      
+      console.log(`[AuthContext] Auth State Change: ${event}`, session?.user?.id);
+
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+      } else if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
+        // Only fetch profile if we have a valid session
+        try {
+           // We reuse getSession logic which merges profile data, 
+           // but we should pass the session we already have to avoid double-fetching if possible,
+           // or just rely on getSession to be safe and get fresh profile data.
+           // However, to avoid race conditions with token refresh, we should trust the session from the event
+           // IF it's newer. But getSession is safer for profile hydration.
+           
+           const currentSession = await authService.getSession();
+           if (mounted && currentSession) {
+             setSession(currentSession);
+             setUser(currentSession.user);
+           } else if (mounted) {
+             // Fallback if getSession fails but event had session (rare)
+             setSession(session);
+             setUser(session.user);
+           }
+        } catch (err) {
+            console.error("Error hydrating profile on auth change:", err);
+        } finally {
+            if (mounted) setLoading(false);
+        }
+      } else if (event === 'INITIAL_SESSION' && !session) {
+          // No session found on startup
+          if (mounted) {
+              setSession(null);
+              setUser(null);
+              setLoading(false);
+          }
+      }
+    });
+
+    // Also call getSession once to handle the initial state in case onAuthStateChange doesn't fire immediately
+    // or for the very first load. BUT, onAuthStateChange with 'INITIAL_SESSION' (if supported by client) 
+    // or just the initial subscription often catches it. 
+    // Supabase v2: getSession() is still good for initial server-side/local check, 
+    // but onAuthStateChange handles the async refresh.
+    
     const initializeAuth = async () => {
       try {
-        // Add a timeout race to prevent eternal loading
-        // Increased to 8s to be more forgiving on slow connections
-        const sessionPromise = authService.getSession();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Session fetch timeout')), 8000)
-        );
-
-        const currentSession = await Promise.race([sessionPromise, timeoutPromise]);
-        
-        if (currentSession) {
-          setSession(currentSession);
-          setUser(currentSession.user);
+        const currentSession = await authService.getSession();
+        if (mounted) {
+          if (currentSession) {
+             setSession(currentSession);
+             setUser(currentSession.user);
+          }
         }
       } catch (error) {
-        console.error('Error initializing auth:', error);
-        // Notify user about connection issues
-        if (error.message === 'Session fetch timeout' || error.message.includes('timeout')) {
-           showAlert(
-             'No se pudo conectar con Supabase. Verifica tu conexión a internet y que las credenciales en .env sean correctas.', 
-             'Error de Conexión', 
-             'error'
-           );
-        } else {
-             showAlert(
-             `Error de inicialización: ${error.message}`, 
-             'Error', 
-             'error'
-           );
-        }
+        console.error('Error initializing auth (initial check):', error);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
     initializeAuth();
 
-    // Listen for auth changes
-    const { data: { subscription } } = authService.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT') {
-        setSession(null);
-        setUser(null);
-        setLoading(false);
-      } else if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-        // We might need to fetch the full profile again if it's not in the session user metadata
-        // For simplicity, let's just rely on what getSession logic does, or reuse it.
-        // But getSession logic merges profile data.
-        // We can just call getSession again to be sure, or trust the session user if metadata is enough.
-        // Given our profile logic, let's just set the session as is, but maybe we miss profile updates?
-        // Actually, calling getSession is safer to get the profile data merged.
-        const currentSession = await authService.getSession();
-        if (currentSession) {
-          setSession(currentSession);
-          setUser(currentSession.user);
+    // SAFETY TIMEOUT: Force loading to false after 5 seconds to prevent infinite spinner
+    const safetyTimeout = setTimeout(() => {
+        if (mounted && loading) {
+            console.warn("AuthContext: Force stopping loading spinner after 5s safety timeout.");
+            setLoading(false);
         }
-        setLoading(false);
-      }
-    });
+    }, 5000);
 
     return () => {
+      mounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
   }, []);

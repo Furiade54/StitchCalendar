@@ -4,10 +4,19 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase URL or Anon Key is missing. Please check your .env file.');
+  throw new Error('Supabase credentials missing. Please configure VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env');
 }
 
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder-url.supabase.co', 
-  supabaseAnonKey || 'placeholder-key'
-);
+try {
+  new URL(supabaseUrl);
+} catch {
+  throw new Error(`Invalid Supabase URL: ${supabaseUrl}`);
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
