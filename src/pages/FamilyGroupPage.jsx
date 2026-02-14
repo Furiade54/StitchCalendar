@@ -35,38 +35,29 @@ const FamilyGroupPage = () => {
   const handleAddFamilyMember = async (e) => {
     e.preventDefault();
     if (!newMemberEmail) return;
+
+    // Validación: No permitirse invitar a uno mismo
+    if (user.email && newMemberEmail.toLowerCase() === user.email.toLowerCase()) {
+      showAlert('No puedes invitarte a ti mismo al grupo familiar.', 'Acción no permitida', 'warning');
+      return;
+    }
+
+    // Validación: No invitar a miembros existentes
+    const existingMember = familyMembers.find(member => member.email.toLowerCase() === newMemberEmail.toLowerCase());
+    if (existingMember) {
+      showAlert('Este usuario ya es miembro de tu grupo familiar.', 'Usuario ya existe', 'warning');
+      return;
+    }
     
     setAddingMember(true);
     try {
-       await dataService.addFamilyMember(user.id, newMemberEmail);
+       // Always send a request instead of adding directly
+       await dataService.sendFamilyRequest(user.id, newMemberEmail);
        setNewMemberEmail('');
-       // Refresh list
-       const members = await dataService.getFamilyMembers(user.id);
-       setFamilyMembers(members);
-       showAlert('Miembro familiar agregado exitosamente', 'Éxito', 'success');
+       
+       showAlert('Se ha enviado una solicitud al usuario para que se una a tu grupo familiar.', 'Solicitud Enviada', 'success');
     } catch (error) {
-       if (error.message === "Este usuario ya pertenece a otro grupo familiar") {
-           const confirmed = await showConfirm(
-               "Este usuario ya tiene su propio grupo familiar. ¿Deseas enviarle una invitación para que se una al tuyo?",
-               "Invitar al Grupo",
-               { status: 'info', confirmText: 'Enviar Invitación', cancelText: 'Cancelar' }
-           );
-
-           if (confirmed) {
-               try {
-                   // When inviting someone who already has a family, we send a request
-                   // for THEM to join US (Invite), not for US to join THEM.
-                   const response = await dataService.sendFamilyRequest(user.id, newMemberEmail);
-                   setNewMemberEmail('');
-                   
-                   showAlert('Se ha enviado una solicitud al usuario para que se una a tu grupo familiar.', 'Solicitud Enviada', 'success');
-               } catch (joinError) {
-                   showAlert(joinError.message, 'Error al enviar solicitud', 'error');
-               }
-           }
-       } else {
-           showAlert(error.message, 'Error', 'error');
-       }
+       showAlert(error.message, 'Error al enviar solicitud', 'error');
     } finally {
        setAddingMember(false);
     }

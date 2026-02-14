@@ -35,6 +35,35 @@ export const authService = {
            console.warn('Could not fetch public profile (timeout or error), using metadata fallback:', err);
          }
           
+         // SELF-HEALING: If profile is missing but user is authenticated, create it.
+         if (!profileData && session.user) {
+             console.warn("User profile missing during session check. Attempting self-healing creation...");
+             const user = session.user;
+             const newProfile = {
+                 id: user.id,
+                 email: user.email,
+                 full_name: user.user_metadata?.full_name || user.email?.split('@')[0],
+                 avatar_url: user.user_metadata?.avatar_url,
+                 username: user.user_metadata?.username || user.email?.split('@')[0],
+                 status: 'active'
+             };
+             
+             try {
+                 const { error: createError } = await supabase
+                    .from('profiles')
+                    .insert(newProfile);
+                    
+                 if (!createError) {
+                     console.log("Profile created successfully via self-healing.");
+                     profileData = newProfile;
+                 } else {
+                     console.error("Self-healing failed:", createError);
+                 }
+             } catch (healErr) {
+                 console.error("Self-healing exception:", healErr);
+             }
+         }
+
          // If profile fetch fails (e.g. no connection), fall back to metadata
          // But if it succeeds, merge it.
          const user = session.user;

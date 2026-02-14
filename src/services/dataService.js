@@ -27,6 +27,21 @@ const mapEventFromSupabase = (dbEvent) => {
   const type = dbEvent.event_types;
   const owner = dbEvent.profiles; // joined via user_id
 
+  // NEW: Construct shared_with from normalized data
+  let sharedWith = [];
+  if (dbEvent.shared_with) {
+      // RPC returns it directly
+      sharedWith = dbEvent.shared_with;
+  } else {
+      // Direct select: combine is_family_shared + event_shares table
+      if (dbEvent.event_shares && Array.isArray(dbEvent.event_shares)) {
+          sharedWith = dbEvent.event_shares.map(s => s.user_id);
+      }
+      if (dbEvent.is_family_shared) {
+          sharedWith.push('family');
+      }
+  }
+
   return {
     id: dbEvent.id,
     title: dbEvent.title,
@@ -37,7 +52,7 @@ const mapEventFromSupabase = (dbEvent) => {
     status: STATUS_MAP_FROM_DB[dbEvent.status] || 'programado',
     location: dbEvent.location,
     user_id: dbEvent.user_id,
-    shared_with: dbEvent.shared_with || [],
+    shared_with: sharedWith,
     created_by: dbEvent.created_by,
     
     // Relational Data (Hydrated)
@@ -60,6 +75,7 @@ const mapEventFromSupabase = (dbEvent) => {
 
 // Helper to map Frontend Model to Supabase Event
 const mapEventToSupabase = (frontendEvent, userId) => {
+   const sharedWith = frontendEvent.shared_with || [];
    return {
      title: frontendEvent.title,
      description: frontendEvent.description,
@@ -70,7 +86,7 @@ const mapEventToSupabase = (frontendEvent, userId) => {
      location: frontendEvent.location,
      user_id: userId, // Ensure ownership
      event_type_id: frontendEvent.event_type_id,
-     shared_with: frontendEvent.shared_with || []
+     is_family_shared: sharedWith.includes('family')
    };
 };
 
@@ -150,14 +166,21 @@ export const dataService = {
                 });
 
                 if (toCompleteIds.length > 0) {
-                     await supabase.rpc('update_event_status_batch', { event_ids: toCompleteIds, new_status: 'completed' });
+                     // Changed to update_my_event_status in loop as batch not implemented yet in new schema
+                     // or implement batch_update_my_status
+                     // For now, let's stick to loop of single updates to ensure per-user status
+                     await Promise.all(toCompleteIds.map(id => 
+                        this.updateEventStatus(id, 'completed', userId)
+                     ));
                 }
                 if (toOverdueIds.length > 0) {
-                     await supabase.rpc('update_event_status_batch', { event_ids: toOverdueIds, new_status: 'overdue' });
+                     await Promise.all(toOverdueIds.map(id => 
+                        this.updateEventStatus(id, 'overdue', userId)
+                     ));
                 }
                 return; // RPC success, exit
             } catch (rpcError) {
-                console.warn("RPC update_event_status_batch failed/missing, using legacy loop:", rpcError.message);
+                console.warn("Batch update failed, using legacy loop:", rpcError.message);
                 // Fallthrough to legacy logic below
             }
 
@@ -229,7 +252,7 @@ export const dataService = {
            const typesToInsert = DEFAULT_EVENT_TYPES.map(t => ({
                user_id: userId,
                name: t.name,
-               label: t.label,
+               // label removed as it does not exist in DB
                color_class: t.color_class,
                icon_bg_class: t.icon_bg_class,
                icon: t.icon,
@@ -239,11 +262,11 @@ export const dataService = {
                default_recurring: t.default_recurring
            }));
 
-           // Use upsert() instead of insert() to handle race conditions or hidden duplicates
-           const { data: newTypes, error: insertError } = await supabase
-               .from('event_types')
-               .upsert(typesToInsert, { onConflict: 'user_id, name', ignoreDuplicates: true })
-               .select();
+          // Insertar tipos por defecto solo para el usuario autenticado
+          const { data: newTypes, error: insertError } = await supabase
+              .from('event_types')
+              .insert(typesToInsert)
+              .select();
 
            if (insertError) {
                console.error("Error seeding default event types:", insertError);
@@ -389,48 +412,76 @@ export const dataService = {
   },
 
   getSchedule: async (day, currentDate, userId) => {
-        let query = supabase
-            .from('events')
-            .select('*, event_types(*), profiles!events_user_id_fkey(*)')
-            .order('start_date', { ascending: true });
+        let events = [];
+        
+        try {
+             // 1. Try fetching via RPC (New Per-User Status Logic)
+             let startRange = null;
+             let endRange = null;
+             
+             if (day && currentDate) {
+                 const targetDate = new Date(currentDate);
+                 targetDate.setDate(day);
+                 targetDate.setHours(0,0,0,0);
+                 startRange = targetDate.toISOString();
+                 
+                 const nextDay = new Date(targetDate);
+                 nextDay.setDate(day + 1);
+                 endRange = nextDay.toISOString();
+             } else if (currentDate) {
+                 const targetDate = new Date(currentDate);
+                 const today = new Date();
+                 today.setHours(0, 0, 0, 0);
+                 
+                 let startFilterDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+                 if (targetDate.getMonth() === today.getMonth() && targetDate.getFullYear() === today.getFullYear()) {
+                     startFilterDate = today;
+                 }
+                 startRange = startFilterDate.toISOString();
+             }
+             
+             const { data: rpcData, error: rpcError } = await supabase.rpc('get_events_with_status_json', {
+                 target_user_id: userId,
+                 filter_type: 'schedule',
+                 start_range: startRange,
+                 end_range: endRange
+             });
+             
+             if (rpcError) throw rpcError;
+             
+             // Map JSON result to model
+             events = rpcData.map(mapEventFromSupabase);
+             
+        } catch (err) {
+            console.warn("RPC get_events_with_status_json failed, fallback to legacy query:", err.message);
+            // Fallback: Legacy Logic (Shared Status)
+            let query = supabase
+                .from('events')
+                .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
+                .order('start_date', { ascending: true });
 
-        // Apply Date Filters
-        if (day && currentDate) {
-            // Specific Day
-            const targetDate = new Date(currentDate);
-            targetDate.setDate(day);
-            targetDate.setHours(0,0,0,0);
-            
-            const nextDay = new Date(targetDate);
-            nextDay.setDate(day + 1);
-            
-            // Filter: start_date >= target AND start_date < nextDay
-            query = query.gte('start_date', targetDate.toISOString())
-                         .lt('start_date', nextDay.toISOString());
-                         
-        } else if (currentDate) {
-            // Month View / Agenda View
-            const targetDate = new Date(currentDate);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            let startFilterDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-            
-            // If viewing current month, only show from Today onwards (plus overdue)
-            if (targetDate.getMonth() === today.getMonth() && targetDate.getFullYear() === today.getFullYear()) {
-                startFilterDate = today;
+            if (day && currentDate) {
+                const targetDate = new Date(currentDate);
+                targetDate.setDate(day);
+                targetDate.setHours(0,0,0,0);
+                const nextDay = new Date(targetDate);
+                nextDay.setDate(day + 1);
+                query = query.gte('start_date', targetDate.toISOString()).lt('start_date', nextDay.toISOString());
+            } else if (currentDate) {
+                const targetDate = new Date(currentDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                let startFilterDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+                if (targetDate.getMonth() === today.getMonth() && targetDate.getFullYear() === today.getFullYear()) {
+                    startFilterDate = today;
+                }
+                query = query.or(`start_date.gte.${startFilterDate.toISOString()},status.eq.overdue`);
             }
             
-            // Fetch strict range for future events.
-            // start_date >= startFilterDate OR status = 'overdue'
-            query = query.or(`start_date.gte.${startFilterDate.toISOString()},status.eq.overdue`);
+            const { data, error } = await query;
+            if (error) throw error;
+            events = data.map(mapEventFromSupabase);
         }
-
-        const { data, error } = await query;
-        if (error) throw error;
-
-        // Map and Client-side Sort
-        const events = data.map(mapEventFromSupabase);
 
         // Apply Client-side Priority Sort (same as Mock)
         if (!day && currentDate) {
@@ -446,7 +497,7 @@ export const dataService = {
                 const todayOnly = new Date(today); todayOnly.setHours(0,0,0,0);
                 
                 const getCategory = (d, status) => {
-                     if (status === 'overdue') return 2; // Keep overdue at bottom? Mock says 2 (Low Priority)
+                     if (status === 'overdue') return 2;
                      if (d.getTime() === todayOnly.getTime()) return 0;
                      if (d > todayOnly) return 1;
                      return 2;
@@ -466,12 +517,41 @@ export const dataService = {
   getEventById: async (eventId, userId) => {
         const { data, error } = await supabase
             .from('events')
-            .select('*, event_types(*), profiles!events_user_id_fkey(*)')
+            .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
             .eq('id', eventId)
             .single();
             
         if (error) throw error;
         return mapEventFromSupabase(data);
+  },
+
+  updateEventStatus: async (eventId, newStatus, userId) => {
+      // Use RPC to update per-user status securely
+      try {
+          const { error } = await supabase.rpc('update_my_event_status', {
+              target_event_id: eventId,
+              new_status: newStatus
+          });
+          
+          if (error) throw error;
+          
+          // Return optimistic response or re-fetch?
+          // For now, return success
+          return { success: true, status: newStatus };
+      } catch (err) {
+          console.warn("RPC update_my_event_status failed, fallback to direct update (legacy owner mode):", err.message);
+          // Fallback: If I am the owner, update the global status
+          const { data, error } = await supabase
+            .from('events')
+            .update({ status: newStatus })
+            .eq('id', eventId)
+            .eq('user_id', userId) // Security: only owner can update global status in legacy mode
+            .select()
+            .single();
+            
+          if (error) throw error;
+          return { success: true, status: data.status };
+      }
   },
 
   updateEvent: async (updatedEvent, userId, requestingUserId = null) => {
@@ -485,7 +565,54 @@ export const dataService = {
             .select('*, event_types(*), profiles!events_user_id_fkey(*)')
             .single();
             
-        if (error) throw error;
+        if (error) {
+            // Fallback for missing relation or profiles table
+            if (error.code === 'PGRST200') {
+                 console.warn("Relation fetch failed (likely missing profiles), returning basic data", error.message);
+                 const { data: basicData, error: basicError } = await supabase
+                    .from('events')
+                    .select('*, event_types(*)')
+                    .eq('id', updatedEvent.id)
+                    .single();
+                 if (basicError) throw basicError;
+                 return mapEventFromSupabase(basicData);
+            }
+            throw error;
+        }
+
+        // NEW: Sync event_shares
+        if (updatedEvent.shared_with && Array.isArray(updatedEvent.shared_with)) {
+             const shareUserIds = updatedEvent.shared_with.filter(id => id !== 'family');
+             
+             // 1. Delete existing shares
+             const { error: deleteError } = await supabase
+                .from('event_shares')
+                .delete()
+                .eq('event_id', updatedEvent.id);
+                
+             if (deleteError) console.error("Error clearing old shares:", deleteError);
+             
+             // 2. Insert new shares
+             if (shareUserIds.length > 0) {
+                 const sharesToInsert = shareUserIds.map(uid => ({
+                     event_id: updatedEvent.id,
+                     user_id: uid
+                 }));
+                 
+                 const { error: insertError } = await supabase
+                    .from('event_shares')
+                    .insert(sharesToInsert);
+                    
+                 if (insertError) {
+                     console.error("Error updating event shares:", insertError);
+                 } else {
+                     data.event_shares = sharesToInsert;
+                 }
+             } else {
+                 data.event_shares = [];
+             }
+        }
+        
         return mapEventFromSupabase(data);
   },
 
@@ -500,14 +627,43 @@ export const dataService = {
   },
 
   shareEvent: async (eventId, targetIds, userId) => {
+        // 1. Update is_family_shared flag
+        const isFamilyShared = targetIds.includes('family');
+        const userIds = targetIds.filter(id => id !== 'family');
+        
         const { data, error } = await supabase
             .from('events')
-            .update({ shared_with: targetIds })
+            .update({ is_family_shared: isFamilyShared })
             .eq('id', eventId)
             .select('*, event_types(*), profiles!events_user_id_fkey(*)')
             .single();
             
         if (error) throw error;
+        
+        // 2. Sync event_shares
+        const { error: deleteError } = await supabase
+            .from('event_shares')
+            .delete()
+            .eq('event_id', eventId);
+            
+        if (deleteError) throw deleteError;
+        
+        const sharesToInsert = userIds.map(uid => ({
+            event_id: eventId,
+            user_id: uid
+        }));
+        
+        if (sharesToInsert.length > 0) {
+            const { error: insertError } = await supabase
+                .from('event_shares')
+                .insert(sharesToInsert);
+                
+            if (insertError) throw insertError;
+        }
+        
+        // Attach manual shares for return mapping
+        data.event_shares = sharesToInsert;
+        
         return mapEventFromSupabase(data);
   },
 
@@ -558,7 +714,100 @@ export const dataService = {
             .select('*, event_types(*), profiles!events_user_id_fkey(*)')
             .single();
             
-        if (error) throw error;
+        if (error) {
+             // Handle Missing Profile (FK Violation) - Self Healing
+             if (error.code === '23503') {
+                 console.warn("User profile missing (FK violation), attempting to create profile...");
+                 const { data: { user } } = await supabase.auth.getUser();
+                 
+                 if (user && user.id === userId) {
+                     const { error: profileError } = await supabase.from('profiles').insert({
+                        id: user.id,
+                        email: user.email,
+                        full_name: user.user_metadata?.full_name || user.email?.split('@')[0],
+                        avatar_url: user.user_metadata?.avatar_url,
+                        username: user.user_metadata?.username || user.email?.split('@')[0]
+                     });
+                     
+                     if (!profileError) {
+                         // Retry insert
+                         const { data: retryData, error: retryError } = await supabase
+                            .from('events')
+                            .insert(dbEvent)
+                            .select('*, event_types(*), profiles!events_user_id_fkey(*)')
+                            .single();
+                            
+                         if (!retryError) {
+                             // Handle shares for retry
+                             if (newEvent.shared_with && Array.isArray(newEvent.shared_with)) {
+                                const shareUserIds = newEvent.shared_with.filter(id => id !== 'family');
+                                if (shareUserIds.length > 0) {
+                                    const sharesToInsert = shareUserIds.map(uid => ({
+                                        event_id: retryData.id,
+                                        user_id: uid
+                                    }));
+                                    await supabase.from('event_shares').insert(sharesToInsert);
+                                    retryData.event_shares = sharesToInsert;
+                                }
+                             }
+                             return mapEventFromSupabase(retryData);
+                         }
+                     }
+                 }
+             }
+
+             // Fallback for missing relation or profiles table
+            if (error.code === 'PGRST200') {
+                 console.warn("Relation fetch failed (likely missing profiles), returning basic data", error.message);
+                 // Retry insert
+                 const { data: retryData, error: retryError } = await supabase
+                    .from('events')
+                    .insert(dbEvent)
+                    .select('*, event_types(*)')
+                    .single();
+                    
+                 if (retryError) throw retryError;
+
+                 // Attempt to insert shares even in fallback
+                 if (newEvent.shared_with && Array.isArray(newEvent.shared_with)) {
+                    const shareUserIds = newEvent.shared_with.filter(id => id !== 'family');
+                    if (shareUserIds.length > 0) {
+                        const sharesToInsert = shareUserIds.map(uid => ({
+                            event_id: retryData.id,
+                            user_id: uid
+                        }));
+                        const { error: shareError } = await supabase.from('event_shares').insert(sharesToInsert);
+                        if (!shareError) retryData.event_shares = sharesToInsert;
+                    }
+                 }
+                 
+                 return mapEventFromSupabase(retryData);
+            }
+            throw error;
+        }
+
+        // NEW: Handle event_shares insertion
+        if (newEvent.shared_with && Array.isArray(newEvent.shared_with)) {
+             const shareUserIds = newEvent.shared_with.filter(id => id !== 'family');
+             if (shareUserIds.length > 0) {
+                 const sharesToInsert = shareUserIds.map(uid => ({
+                     event_id: data.id,
+                     user_id: uid
+                 }));
+                 
+                 const { error: shareError } = await supabase
+                    .from('event_shares')
+                    .insert(sharesToInsert);
+                 
+                 if (shareError) {
+                     console.error("Error inserting event shares:", shareError);
+                 } else {
+                     // Attach shares to data for mapping
+                     data.event_shares = sharesToInsert;
+                 }
+             }
+        }
+        
         return mapEventFromSupabase(data);
   },
 
@@ -672,20 +921,38 @@ export const dataService = {
   },
 
   getCompletedEvents: async (userId) => {
-        let query = supabase
-            .from('events')
-            .select('*, event_types(*), profiles!events_user_id_fkey(*)')
-            .in('status', ['completed', 'overdue'])
-            .order('start_date', { ascending: false });
+        let events = [];
+        try {
+            // 1. Try fetching via RPC (New Per-User Status Logic)
+            const { data: rpcData, error: rpcError } = await supabase.rpc('get_events_with_status_json', {
+                 target_user_id: userId,
+                 filter_type: 'completed'
+            });
 
-        if (userId) {
-            query = query.eq('user_id', userId);
+            if (rpcError) throw rpcError;
+            events = rpcData.map(mapEventFromSupabase);
+
+        } catch (err) {
+             console.warn("RPC get_events_with_status_json failed (completed), fallback to legacy:", err.message);
+             // Fallback
+             let query = supabase
+                .from('events')
+                .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
+                .in('status', ['completed', 'overdue'])
+                .order('start_date', { ascending: false });
+
+            // We rely on RLS to filter visible events (Owner OR Shared OR Family)
+            // Explicitly filtering by user_id would hide shared events where I am not the owner.
+            // if (userId) {
+            //     query = query.eq('user_id', userId);
+            // }
+
+            const { data, error } = await query;
+            if (error) throw error;
+            events = data.map(mapEventFromSupabase);
         }
-
-        const { data, error } = await query;
-            
-        if (error) throw error;
-        return data.map(mapEventFromSupabase);
+        
+        return events;
   },
 
   getFamilyMembers: async (userId) => {
@@ -694,7 +961,7 @@ export const dataService = {
         .from('profiles')
         .select('family_id')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
       
       if (userError) throw userError;
       if (!userData?.family_id) return [];
@@ -712,10 +979,9 @@ export const dataService = {
   },
 
   addFamilyMember: async (currentUserId, email) => {
-      // RPC handles UUID generation and linking
-      const { data, error } = await supabase.rpc('add_family_member', { target_email: email });
-      if (error) throw error;
-      return data;
+      // DEPRECATED: Use sendFamilyRequest instead.
+      // This function now redirects to sendFamilyRequest internally via SQL or JS
+      return dataService.sendFamilyRequest(currentUserId, email);
   },
 
   removeFamilyMember: async (currentUserId, targetMemberId) => {
@@ -735,6 +1001,7 @@ export const dataService = {
   sendFamilyRequest: async (currentUserId, targetEmail) => {
       const { data, error } = await supabase.rpc('send_family_request_rpc', { target_email: targetEmail });
       if (error) throw error;
+      if (data && data.error) throw new Error(data.error);
       return data;
   },
 
