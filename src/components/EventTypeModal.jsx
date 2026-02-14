@@ -72,8 +72,10 @@ const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing
         
         <div className="space-y-6">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nombre</label>
+            <label htmlFor="eventTypeName" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Nombre</label>
             <input 
+              id="eventTypeName"
+              name="name"
               type="text" 
               value={formData.name}
               onChange={(e) => setFormData({...formData, name: e.target.value})}

@@ -168,7 +168,7 @@ const UserProfilePage = () => {
       showAlert('Imagen subida correctamente', 'Éxito', 'success');
     } catch (error) {
       console.error('Error uploading avatar:', error);
-      showAlert('Error al subir la imagen', 'Error', 'error');
+      showAlert(error?.message || 'Error al subir la imagen', 'Error', 'error');
     } finally {
       setUploading(false);
       // Reset input

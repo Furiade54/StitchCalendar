@@ -797,8 +797,9 @@ export const dataService = {
                 const todayIso = today.toISOString();
 
                 const [resultCompleted, resultUpcoming] = await Promise.all([
-                    supabase.from('events').select('id', { count: 'exact', head: true }).eq('user_id', userId).in('status', ['completed', 'overdue']),
-                    supabase.from('events').select('id', { count: 'exact', head: true }).eq('user_id', userId).neq('status', 'cancelled').neq('status', 'completed').neq('status', 'overdue').gte('start_date', todayIso)
+                    // Contar eventos visibles por RLS (propios o compartidos)
+                    supabase.from('events').select('id', { count: 'exact', head: true }).in('status', ['completed', 'overdue']),
+                    supabase.from('events').select('id', { count: 'exact', head: true }).neq('status', 'cancelled').neq('status', 'completed').neq('status', 'overdue').gte('start_date', todayIso)
                 ]);
                 return {
                     completedTasks: resultCompleted.count || 0,
