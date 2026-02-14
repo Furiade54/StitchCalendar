@@ -46,6 +46,15 @@ function CalendarPage() {
       console.error("Error responding to notification:", error);
     }
   };
+  
+  const handleMarkNotificationRead = async (notificationId) => {
+    try {
+      await dataService.markNotificationRead(notificationId);
+      loadNotifications();
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
+  };
 
   // Initialize state from sessionStorage if available to preserve context on back navigation
   const [selectedDay, setSelectedDay] = useState(() => {
@@ -270,6 +279,7 @@ function CalendarPage() {
         onClose={() => setIsNotificationsOpen(false)}
         notifications={notifications}
         onRespond={handleRespondNotification}
+        onMarkRead={handleMarkNotificationRead}
       />
     </div>
   )

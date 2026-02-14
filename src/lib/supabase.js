@@ -27,17 +27,5 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true
-    },
-    // Configuración global de timeouts para fetch
-    global: {
-        fetch: (url, options) => {
-            return fetch(url, {
-                ...options,
-                // Aumentar el timeout por defecto de fetch si es posible, 
-                // pero fetch nativo no tiene timeout simple. 
-                // Supabase cliente maneja sus propios timeouts.
-                // Esta intersección es para debug si fuera necesario.
-            });
-        }
     }
 });

@@ -166,16 +166,13 @@ export const dataService = {
                 });
 
                 if (toCompleteIds.length > 0) {
-                     // Changed to update_my_event_status in loop as batch not implemented yet in new schema
-                     // or implement batch_update_my_status
-                     // For now, let's stick to loop of single updates to ensure per-user status
                      await Promise.all(toCompleteIds.map(id => 
-                        this.updateEventStatus(id, 'completed', userId)
+                        dataService.updateEventStatus(id, 'completed', userId)
                      ));
                 }
                 if (toOverdueIds.length > 0) {
                      await Promise.all(toOverdueIds.map(id => 
-                        this.updateEventStatus(id, 'overdue', userId)
+                        dataService.updateEventStatus(id, 'overdue', userId)
                      ));
                 }
                 return; // RPC success, exit
@@ -231,13 +228,6 @@ export const dataService = {
     },
 
   getEventTypes: async (userId) => {
-       const { data: sessionData } = await supabase.auth.getSession();
-       const currentAuthId = sessionData?.session?.user?.id;
-       
-       if (currentAuthId && userId && currentAuthId !== userId) {
-           console.warn(`[getEventTypes] Mismatch: auth.uid=${currentAuthId}, param.userId=${userId}`);
-       }
-
        const { data, error } = await supabase
          .from('event_types')
          .select('*')
@@ -245,51 +235,7 @@ export const dataService = {
        
        if (error) throw error;
 
-       // If no types exist for this user, seed default types
-       // SECURITY: Only seed if the requested userId matches the authenticated user
-       if (data.length === 0 && DEFAULT_EVENT_TYPES.length > 0 && currentAuthId === userId) {
-           console.log(`[getEventTypes] Seeding default types for user ${userId}`);
-           const typesToInsert = DEFAULT_EVENT_TYPES.map(t => ({
-               user_id: userId,
-               name: t.name,
-               // label removed as it does not exist in DB
-               color_class: t.color_class,
-               icon_bg_class: t.icon_bg_class,
-               icon: t.icon,
-               requires_end_time: t.requires_end_time,
-               requires_location: t.requires_location,
-               requires_url: t.requires_url,
-               default_recurring: t.default_recurring
-           }));
-
-          // Insertar tipos por defecto solo para el usuario autenticado
-          const { data: newTypes, error: insertError } = await supabase
-              .from('event_types')
-              .insert(typesToInsert)
-              .select();
-
-           if (insertError) {
-               console.error("Error seeding default event types:", insertError);
-               // Don't throw, just return empty list to avoid blocking UI
-               return [];
-           }
-           
-           return newTypes.map(t => ({
-              id: t.id,
-              name: t.name,
-              label: t.name, // Compat
-              color: t.color_class, // Compat
-              color_class: t.color_class,
-              icon_bg_class: t.icon_bg_class,
-              icon: t.icon,
-              user_id: t.user_id,
-              requires_end_time: t.requires_end_time,
-              requires_location: t.requires_location,
-              requires_url: t.requires_url,
-              default_recurring: t.default_recurring
-           }));
-       }
-       
+       // Seeding moved to ensureDefaultEventTypes to avoid race conditions
        // Map to frontend format
        return data.map(t => ({
           id: t.id,
@@ -307,19 +253,40 @@ export const dataService = {
        }));
   },
 
-  createEventType: async (newType, userId) => {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const currentAuthId = sessionData?.session?.user?.id;
-        
-        if (currentAuthId && userId && currentAuthId !== userId) {
-             console.error(`[createEventType] Security mismatch: auth.uid=${currentAuthId} vs param.userId=${userId}`);
-             throw new Error('Security violation: Cannot create event types for another user.');
-        }
+  ensureDefaultEventTypes: async (userId) => {
+       const { data: existing, error: fetchErr } = await supabase
+         .from('event_types')
+         .select('name')
+         .eq('user_id', userId);
+       if (fetchErr) throw fetchErr;
+       if (existing.length > 0) return true;
+       for (const t of DEFAULT_EVENT_TYPES) {
+         const dbType = {
+           user_id: userId,
+           name: t.name,
+           color_class: t.color_class,
+           icon_bg_class: t.icon_bg_class,
+           icon: t.icon,
+           requires_end_time: t.requires_end_time,
+           requires_location: t.requires_location,
+           requires_url: t.requires_url,
+           default_recurring: t.default_recurring
+         };
+         const { error: insErr } = await supabase
+           .from('event_types')
+           .insert(dbType);
+         if (insErr && insErr.code !== '23505') {
+           console.error('Error seeding default event types:', insErr);
+         }
+       }
+       return true;
+  },
 
+  createEventType: async (newType, userId) => {
         const dbType = {
             name: newType.name,
-            color_class: newType.colorClass || newType.color, // handle both
-            icon_bg_class: newType.iconBgClass,
+            color_class: newType.color_class || newType.colorClass || newType.color,
+            icon_bg_class: newType.icon_bg_class || newType.iconBgClass,
             icon: newType.icon,
             user_id: userId,
             // Configuration fields
@@ -354,18 +321,10 @@ export const dataService = {
   },
 
   updateEventType: async (typeId, updatedType, userId) => {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const currentAuthId = sessionData?.session?.user?.id;
-        
-        if (currentAuthId && userId && currentAuthId !== userId) {
-            console.error(`[updateEventType] Security mismatch: auth.uid=${currentAuthId} vs param.userId=${userId}`);
-            throw new Error('Security violation: Cannot update event types for another user.');
-        }
-
         const dbUpdates = {};
         if (updatedType.name) dbUpdates.name = updatedType.name;
-        if (updatedType.colorClass || updatedType.color) dbUpdates.color_class = updatedType.colorClass || updatedType.color;
-        if (updatedType.iconBgClass) dbUpdates.icon_bg_class = updatedType.iconBgClass;
+        if (updatedType.color_class || updatedType.colorClass || updatedType.color) dbUpdates.color_class = updatedType.color_class || updatedType.colorClass || updatedType.color;
+        if (updatedType.icon_bg_class || updatedType.iconBgClass) dbUpdates.icon_bg_class = updatedType.icon_bg_class || updatedType.iconBgClass;
         if (updatedType.icon) dbUpdates.icon = updatedType.icon;
         
         // Update configuration fields if present
@@ -411,101 +370,51 @@ export const dataService = {
         return true;
   },
 
-  getSchedule: async (day, currentDate, userId) => {
-        let events = [];
-        
-        try {
-             // 1. Try fetching via RPC (New Per-User Status Logic)
-             let startRange = null;
-             let endRange = null;
-             
-             if (day && currentDate) {
-                 const targetDate = new Date(currentDate);
-                 targetDate.setDate(day);
-                 targetDate.setHours(0,0,0,0);
-                 startRange = targetDate.toISOString();
-                 
-                 const nextDay = new Date(targetDate);
-                 nextDay.setDate(day + 1);
-                 endRange = nextDay.toISOString();
-             } else if (currentDate) {
-                 const targetDate = new Date(currentDate);
-                 const today = new Date();
-                 today.setHours(0, 0, 0, 0);
-                 
-                 let startFilterDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-                 if (targetDate.getMonth() === today.getMonth() && targetDate.getFullYear() === today.getFullYear()) {
-                     startFilterDate = today;
-                 }
-                 startRange = startFilterDate.toISOString();
-             }
-             
-             const { data: rpcData, error: rpcError } = await supabase.rpc('get_events_with_status_json', {
-                 target_user_id: userId,
-                 filter_type: 'schedule',
-                 start_range: startRange,
-                 end_range: endRange
-             });
-             
-             if (rpcError) throw rpcError;
-             
-             // Map JSON result to model
-             events = rpcData.map(mapEventFromSupabase);
-             
-        } catch (err) {
-            console.warn("RPC get_events_with_status_json failed, fallback to legacy query:", err.message);
-            // Fallback: Legacy Logic (Shared Status)
-            let query = supabase
-                .from('events')
-                .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
-                .order('start_date', { ascending: true });
+  getSchedule: async (day, currentDate) => {
+        let query = supabase
+            .from('events')
+            .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
+            .order('start_date', { ascending: true });
 
-            if (day && currentDate) {
-                const targetDate = new Date(currentDate);
-                targetDate.setDate(day);
-                targetDate.setHours(0,0,0,0);
-                const nextDay = new Date(targetDate);
-                nextDay.setDate(day + 1);
-                query = query.gte('start_date', targetDate.toISOString()).lt('start_date', nextDay.toISOString());
-            } else if (currentDate) {
-                const targetDate = new Date(currentDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                let startFilterDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-                if (targetDate.getMonth() === today.getMonth() && targetDate.getFullYear() === today.getFullYear()) {
-                    startFilterDate = today;
-                }
-                query = query.or(`start_date.gte.${startFilterDate.toISOString()},status.eq.overdue`);
+        if (day && currentDate) {
+            const targetDate = new Date(currentDate);
+            targetDate.setDate(day);
+            targetDate.setHours(0,0,0,0);
+            const nextDay = new Date(targetDate);
+            nextDay.setDate(day + 1);
+            query = query.gte('start_date', targetDate.toISOString()).lt('start_date', nextDay.toISOString());
+        } else if (currentDate) {
+            const targetDate = new Date(currentDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            let startFilterDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+            if (targetDate.getMonth() === today.getMonth() && targetDate.getFullYear() === today.getFullYear()) {
+                startFilterDate = today;
             }
-            
-            const { data, error } = await query;
-            if (error) throw error;
-            events = data.map(mapEventFromSupabase);
+            query = query.or(`start_date.gte.${startFilterDate.toISOString()},status.eq.overdue`);
         }
+        
+        const { data, error } = await query;
+        if (error) throw error;
+        const events = data.map(mapEventFromSupabase);
 
-        // Apply Client-side Priority Sort (same as Mock)
         if (!day && currentDate) {
             const today = new Date();
             today.setHours(0,0,0,0);
-            
             events.sort((a, b) => {
                 const dateA = new Date(a.startDate);
                 const dateB = new Date(b.startDate);
-                
                 const dateAOnly = new Date(dateA); dateAOnly.setHours(0,0,0,0);
                 const dateBOnly = new Date(dateB); dateBOnly.setHours(0,0,0,0);
                 const todayOnly = new Date(today); todayOnly.setHours(0,0,0,0);
-                
                 const getCategory = (d, status) => {
                      if (status === 'overdue') return 2;
                      if (d.getTime() === todayOnly.getTime()) return 0;
                      if (d > todayOnly) return 1;
                      return 2;
                 };
-
                 const catA = getCategory(dateAOnly, a.status);
                 const catB = getCategory(dateBOnly, b.status);
-
                 if (catA !== catB) return catA - catB;
                 return dateA - dateB;
             });
@@ -514,7 +423,7 @@ export const dataService = {
         return events;
   },
 
-  getEventById: async (eventId, userId) => {
+  getEventById: async (eventId) => {
         const { data, error } = await supabase
             .from('events')
             .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
@@ -525,36 +434,18 @@ export const dataService = {
         return mapEventFromSupabase(data);
   },
 
-  updateEventStatus: async (eventId, newStatus, userId) => {
-      // Use RPC to update per-user status securely
-      try {
-          const { error } = await supabase.rpc('update_my_event_status', {
-              target_event_id: eventId,
-              new_status: newStatus
-          });
-          
-          if (error) throw error;
-          
-          // Return optimistic response or re-fetch?
-          // For now, return success
-          return { success: true, status: newStatus };
-      } catch (err) {
-          console.warn("RPC update_my_event_status failed, fallback to direct update (legacy owner mode):", err.message);
-          // Fallback: If I am the owner, update the global status
-          const { data, error } = await supabase
-            .from('events')
-            .update({ status: newStatus })
-            .eq('id', eventId)
-            .eq('user_id', userId) // Security: only owner can update global status in legacy mode
-            .select()
-            .single();
-            
-          if (error) throw error;
-          return { success: true, status: data.status };
-      }
+  updateEventStatus: async (eventId, newStatus) => {
+      const { data, error } = await supabase
+        .from('events')
+        .update({ status: newStatus })
+        .eq('id', eventId)
+        .select()
+        .single();
+      if (error) throw error;
+      return { success: true, status: data.status };
   },
 
-  updateEvent: async (updatedEvent, userId, requestingUserId = null) => {
+  updateEvent: async (updatedEvent, userId) => {
         // Map to DB format
         const dbEvent = mapEventToSupabase(updatedEvent, userId);
         
@@ -616,7 +507,7 @@ export const dataService = {
         return mapEventFromSupabase(data);
   },
 
-  deleteEvent: async (eventId, userId, requestingUserId = null) => {
+  deleteEvent: async (eventId) => {
         const { error } = await supabase
             .from('events')
             .delete()
@@ -626,7 +517,7 @@ export const dataService = {
         return { success: true };
   },
 
-  shareEvent: async (eventId, targetIds, userId) => {
+  shareEvent: async (eventId, targetIds) => {
         // 1. Update is_family_shared flag
         const isFamilyShared = targetIds.includes('family');
         const userIds = targetIds.filter(id => id !== 'family');
@@ -681,20 +572,19 @@ export const dataService = {
     return data;
   },
 
-  // Check if targetUser has allowed editorId to edit their calendar
-  canEdit: async (targetUserId, editorId) => {
-    if (targetUserId === editorId) return true;
-    
-    // Fetch target user's profile to check allowed_editors
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('allowed_editors')
-        .eq('id', targetUserId)
-        .single();
-        
-    if (error || !data) return false;
-    
-    return data.allowed_editors && data.allowed_editors.includes(editorId);
+  // Check de edición: solo dueño o listado explícito en allowed_editors
+  canEdit: async (targetUserId, editorUserId) => {
+    if (!targetUserId || !editorUserId) return false;
+    if (targetUserId === editorUserId) return true;
+    const { data: target, error: tErr } = await supabase
+      .from('profiles')
+      .select('id,allowed_editors')
+      .eq('id', targetUserId)
+      .maybeSingle();
+    if (tErr) throw tErr;
+    if (!target) return false;
+    const allowed = Array.isArray(target.allowed_editors) ? target.allowed_editors : [];
+    return allowed.includes(editorUserId);
   },
 
   addEvent: async (newEvent, userId, requestingUserId = null) => {
@@ -811,7 +701,7 @@ export const dataService = {
         return mapEventFromSupabase(data);
   },
 
-  getCalendarDays: async (year, month, userId) => {
+  getCalendarDays: async (year, month) => {
         // Calculate range
         const startOfMonth = new Date(year, month, 1);
         const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
@@ -978,6 +868,16 @@ export const dataService = {
       return members;
   },
 
+  userExistsByEmail: async (email) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id,email,full_name,avatar_url')
+        .eq('email', email)
+        .maybeSingle();
+      if (error) throw error;
+      return { exists: !!data, user: data || null };
+  },
+
   addFamilyMember: async (currentUserId, email) => {
       // DEPRECATED: Use sendFamilyRequest instead.
       // This function now redirects to sendFamilyRequest internally via SQL or JS
@@ -985,24 +885,52 @@ export const dataService = {
   },
 
   removeFamilyMember: async (currentUserId, targetMemberId) => {
-      // RPC ensures secure removal
-      const { data, error } = await supabase.rpc('remove_family_member', { target_user_id: targetMemberId });
+      const { error } = await supabase
+        .from('profiles')
+        .update({ family_id: null })
+        .eq('id', targetMemberId);
       if (error) throw error;
       return { success: true };
   },
 
   leaveFamilyGroup: async (userId) => {
-      // RPC handles self-removal cleanly
-      const { error } = await supabase.rpc('remove_family_member', { target_user_id: userId });
+      const { error } = await supabase
+        .from('profiles')
+        .update({ family_id: null })
+        .eq('id', userId);
       if (error) throw error;
       return { success: true };
   },
 
   sendFamilyRequest: async (currentUserId, targetEmail) => {
-      const { data, error } = await supabase.rpc('send_family_request_rpc', { target_email: targetEmail });
-      if (error) throw error;
-      if (data && data.error) throw new Error(data.error);
-      return data;
+      const { data: target, error: targetErr } = await supabase
+        .from('profiles')
+        .select('id,email')
+        .eq('email', targetEmail)
+        .maybeSingle();
+      if (targetErr) throw targetErr;
+      if (!target) throw new Error('Usuario no encontrado');
+      const { data: me, error: meErr } = await supabase
+        .from('profiles')
+        .select('id,family_id')
+        .eq('id', currentUserId)
+        .single();
+      if (meErr) throw meErr;
+      const payload = me.family_id ? { family_id: me.family_id } : {};
+      const notification = {
+        type: 'family_request',
+        from_user_id: currentUserId,
+        to_user_id: target.id,
+        status: 'pending',
+        payload
+      };
+      const { data: created, error: notifErr } = await supabase
+        .from('notifications')
+        .insert(notification)
+        .select('*')
+        .single();
+      if (notifErr) throw notifErr;
+      return created;
   },
 
   getNotifications: async (userId) => {
@@ -1016,7 +944,7 @@ export const dataService = {
           )
         `)
         .eq('to_user_id', userId)
-        .eq('status', 'pending')
+        .in('status', ['pending','accepted','rejected','granted','revoked'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -1035,10 +963,64 @@ export const dataService = {
   },
 
   respondToFamilyRequest: async (notificationId, userId, accept) => {
-      const { data, error } = await supabase.rpc('respond_to_family_request', { 
-        notification_id: notificationId, 
-        accept: accept 
-      });
+      const { data: notif, error: notifErr } = await supabase
+        .from('notifications')
+        .select('id,type,from_user_id,to_user_id,status,payload')
+        .eq('id', notificationId)
+        .single();
+      if (notifErr) throw notifErr;
+      if (!notif || notif.type !== 'family_request') throw new Error('Solicitud inválida');
+      if (!accept) {
+        const { error: rejectErr } = await supabase
+          .from('notifications')
+          .update({ status: 'rejected' })
+          .eq('id', notificationId);
+        if (rejectErr) throw rejectErr;
+        return { success: true };
+      }
+      let familyId = notif.payload?.family_id || null;
+      if (!familyId) {
+        const { data: fromProfile } = await supabase
+          .from('profiles')
+          .select('family_id')
+          .eq('id', notif.from_user_id)
+          .single();
+        familyId = fromProfile?.family_id || null;
+      }
+      if (!familyId) {
+        const { data: newFam, error: famErr } = await supabase
+          .from('families')
+          .insert({})
+          .select('id')
+          .single();
+        if (famErr) throw famErr;
+        familyId = newFam.id;
+      }
+      const updates = [
+        supabase.from('profiles').update({ family_id: familyId }).eq('id', notif.from_user_id),
+        supabase.from('profiles').update({ family_id: familyId }).eq('id', notif.to_user_id),
+        supabase.from('notifications').update({ status: 'accepted', payload: { family_id: familyId } }).eq('id', notificationId)
+      ];
+      const results = await Promise.all(updates);
+      for (const r of results) {
+        if (r.error) throw r.error;
+      }
+      return { success: true };
+  }
+
+  ,
+  markNotificationRead: async (notificationId) => {
+      const { data: notif, error: fetchErr } = await supabase
+        .from('notifications')
+        .select('id,type,status')
+        .eq('id', notificationId)
+        .single();
+      if (fetchErr) throw fetchErr;
+      if (!notif || notif.type !== 'family_request') throw new Error('Solo se pueden marcar como leídas las invitaciones de grupo familiar');
+      const { error } = await supabase
+        .from('notifications')
+        .update({ status: 'read' })
+        .eq('id', notificationId);
       if (error) throw error;
       return { success: true };
   }

@@ -16,6 +16,15 @@ const LoginScreen = () => {
 
   const [showRegistrationPrompt, setShowRegistrationPrompt] = useState(false);
 
+  React.useEffect(() => {
+    if (!loggingIn) return;
+    const watchdog = setTimeout(() => {
+      setLoggingIn(false);
+      setError('La solicitud de inicio de sesión está tardando demasiado. Verifica tu conexión y el acceso a la base de datos.');
+    }, 12000);
+    return () => clearTimeout(watchdog);
+  }, [loggingIn]);
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setError(null);
@@ -34,6 +43,15 @@ const LoginScreen = () => {
     if (isRegistering) {
       if (!fullName) {
         setError('Por favor ingresa tu nombre completo');
+        return;
+      }
+      const usernameCandidate = email.split('@')[0] || '';
+      if (fullName.trim().length < 3) {
+        setError('El nombre completo debe tener al menos 3 caracteres');
+        return;
+      }
+      if (usernameCandidate.length < 3 || usernameCandidate.length > 32) {
+        setError('El nombre de usuario debe tener entre 3 y 32 caracteres (parte antes del @ del correo).');
         return;
       }
       if (password !== confirmPassword) {
@@ -56,7 +74,10 @@ const LoginScreen = () => {
       } else {
         console.error('Auth failed:', error);
         // Clean error message for user display
-        const displayError = error.message.replace('Auth failed: Error: ', '');
+        let displayError = error.message.replace('Auth failed: Error: ', '');
+        if ((error.code === '23514' || error.message?.includes('violates check constraint')) && /username_length/i.test(error.message || '')) {
+          displayError = 'El nombre de usuario debe tener entre 3 y 32 caracteres.';
+        }
         setError(displayError);
       }
       setLoggingIn(false);

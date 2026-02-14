@@ -197,7 +197,7 @@ const EventTypeModal = ({ isOpen, onClose, onSave, initialData = null, isEditing
             </button>
             <button 
               onClick={handleSubmit}
-              disabled={!formData.label}
+              disabled={!formData.name}
               className="flex-1 py-3 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/40 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isEditing ? 'Guardar Cambios' : 'Crear Tipo'}

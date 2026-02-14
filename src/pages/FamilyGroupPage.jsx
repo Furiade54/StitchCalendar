@@ -11,6 +11,8 @@ const FamilyGroupPage = () => {
   const navigate = useNavigate();
   const [familyMembers, setFamilyMembers] = useState([]);
   const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [emailChecking, setEmailChecking] = useState(false);
+  const [emailExists, setEmailExists] = useState(null);
   const [addingMember, setAddingMember] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -32,6 +34,30 @@ const FamilyGroupPage = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    let active = true;
+    const email = newMemberEmail.trim();
+    setEmailExists(null);
+    if (!email) return;
+    const isEmail = /\S+@\S+\.\S+/.test(email);
+    if (!isEmail) return;
+    setEmailChecking(true);
+    const timer = setTimeout(async () => {
+      try {
+        const { exists } = await dataService.userExistsByEmail(email);
+        if (active) setEmailExists(exists);
+      } catch (err) {
+        if (active) setEmailExists(false);
+      } finally {
+        if (active) setEmailChecking(false);
+      }
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [newMemberEmail]);
+
   const handleAddFamilyMember = async (e) => {
     e.preventDefault();
     if (!newMemberEmail) return;
@@ -49,6 +75,10 @@ const FamilyGroupPage = () => {
       return;
     }
     
+    if (emailExists === false) {
+      showAlert('Ese correo no pertenece a ningún usuario registrado.', 'Usuario no encontrado', 'warning');
+      return;
+    }
     setAddingMember(true);
     try {
        // Always send a request instead of adding directly
@@ -66,8 +96,9 @@ const FamilyGroupPage = () => {
   const handleSavePermissions = async (allowedEditors) => {
     try {
       await updateUser({ allowed_editors: allowedEditors });
+      showAlert('Permisos actualizados correctamente', 'Guardado', 'success');
     } catch (error) {
-      console.error('Error updating permissions:', error);
+      console.error('Error updating permisos:', error);
       showAlert('Error al guardar permisos', 'Error', 'error');
     }
   };
@@ -181,13 +212,17 @@ const FamilyGroupPage = () => {
                             placeholder="correo@ejemplo.com"
                             value={newMemberEmail}
                             onChange={(e) => setNewMemberEmail(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all text-slate-900 dark:text-white"
+                            className={`w-full pl-10 pr-4 py-3 bg-white dark:bg-surface-dark border rounded-xl focus:ring-2 transition-all text-slate-900 dark:text-white ${
+                              emailExists === true ? 'border-green-400 focus:ring-green-300 focus:border-green-400' :
+                              emailExists === false ? 'border-red-400 focus:ring-red-300 focus:border-red-400' :
+                              'border-slate-200 dark:border-slate-700 focus:ring-primary focus:border-primary'
+                            }`}
                         />
                     </div>
                     <button 
                         type="button"
                         onClick={handleAddFamilyMember}
-                        disabled={addingMember || !newMemberEmail}
+                        disabled={addingMember || !newMemberEmail || emailChecking}
                         className="px-6 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-primary/25"
                     >
                         {addingMember ? (
@@ -199,7 +234,7 @@ const FamilyGroupPage = () => {
                 </div>
                 <p className="text-xs text-slate-400 mt-2 ml-1">
                     <span className="material-symbols-outlined text-[14px] align-text-bottom mr-1">info</span>
-                    Asegúrate de usar el correo exacto con el que tu familiar se registró en la app.
+                    {emailChecking ? 'Verificando usuario...' : emailExists === true ? 'Usuario encontrado' : emailExists === false ? 'No existe un usuario con ese correo' : 'Asegúrate de usar el correo exacto con el que tu familiar se registró en la app.'}
                 </p>
             </div>
 

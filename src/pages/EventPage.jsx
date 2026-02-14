@@ -85,6 +85,10 @@ const EventPage = () => {
 
   const handleShareSave = async () => {
     try {
+        if (!canEdit) {
+            await showAlert('No tienes permisos para compartir este evento. Solicita autorización al propietario.', 'Acción no permitida', 'warning');
+            return;
+        }
         const shareList = [...selectedShareMembers];
         if (shareWithFamily) shareList.push('family');
         
