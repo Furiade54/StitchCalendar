@@ -150,7 +150,14 @@ const EventPage = () => {
         const initialDate = location.state?.currentDate ? new Date(location.state.currentDate) : new Date();
         const initialDay = location.state?.selectedDay || initialDate.getDate();
         
-        // Format date strings for inputs (YYYY-MM-DDTHH:mm)
+        const toLocalInput = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          return `${y}-${m}-${day}T${hh}:${mm}`;
+        };
         const startDate = new Date(initialDate);
         startDate.setDate(initialDay);
         startDate.setHours(9, 0, 0, 0);
@@ -165,8 +172,8 @@ const EventPage = () => {
           title: '',
           eventType: defaultType?.name || 'cita',
           status: EVENT_STATUS.SCHEDULED,
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+          startDate: toLocalInput(startDate),
+          endDate: toLocalInput(endDate),
           day: initialDay,
           notes: '',
           isRecurring: false,
@@ -360,7 +367,9 @@ const EventPage = () => {
   // Helper to format date for display
   const formatDate = (dateString) => {
     if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('es-ES', { 
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(dateString);
+    const d = m ? new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10), parseInt(m[4],10), parseInt(m[5],10)) : new Date(dateString);
+    return d.toLocaleDateString('es-ES', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
@@ -370,8 +379,13 @@ const EventPage = () => {
 
   const formatTimeRange = (start, end) => {
     if (!start || !end) return '';
-    const s = new Date(start);
-    const e = new Date(end);
+    const toLocal = (s) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
+      if (m) return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10), parseInt(m[4],10), parseInt(m[5],10));
+      return new Date(s);
+    };
+    const s = toLocal(start);
+    const e = toLocal(end);
     return `${s.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${e.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
   };
 
@@ -510,7 +524,7 @@ const EventPage = () => {
                     </label>
                     <input 
                       type="datetime-local" 
-                      value={editedEvent.startDate ? editedEvent.startDate.slice(0, 16) : ''} 
+                      value={editedEvent.startDate ? (() => { const d = new Date(editedEvent.startDate); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); const hh=String(d.getHours()).padStart(2,'0'); const mm=String(d.getMinutes()).padStart(2,'0'); return `${y}-${m}-${day}T${hh}:${mm}`; })() : ''} 
                       onChange={handleStartDateChange}
                       className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all text-sm"
                     />
@@ -522,7 +536,7 @@ const EventPage = () => {
                       <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Fin</label>
                       <input 
                         type="datetime-local" 
-                        value={editedEvent.endDate ? editedEvent.endDate.slice(0, 16) : ''} 
+                        value={editedEvent.endDate ? (() => { const d = new Date(editedEvent.endDate); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); const hh=String(d.getHours()).padStart(2,'0'); const mm=String(d.getMinutes()).padStart(2,'0'); return `${y}-${m}-${day}T${hh}:${mm}`; })() : ''} 
                         onChange={(e) => setEditedEvent({ ...editedEvent, endDate: e.target.value })}
                         className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all text-sm"
                       />

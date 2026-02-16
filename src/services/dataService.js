@@ -82,11 +82,26 @@ const mapEventFromSupabase = (dbEvent) => {
 // Helper to map Frontend Model to Supabase Event
 const mapEventToSupabase = (frontendEvent, userId) => {
    const sharedWith = frontendEvent.shared_with || [];
+   const hasTz = (s) => typeof s === 'string' && /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+   const toIsoZ = (localStr) => {
+     if (!localStr) return null;
+     if (hasTz(localStr)) {
+       // If it already has a timezone, normalize to Z to avoid double shifts
+       const d = new Date(localStr);
+       return d.toISOString();
+     }
+     const [datePart, timePartRaw] = localStr.split('T');
+     const timePart = (timePartRaw || '00:00').padEnd(5, '0');
+     const [hh, mm] = timePart.split(':').map((v) => parseInt(v, 10));
+     const [y, m, d] = datePart.split('-').map((v) => parseInt(v, 10));
+     const dt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+     return dt.toISOString();
+   };
    return {
      title: frontendEvent.title,
      description: frontendEvent.description,
-     start_date: frontendEvent.startDate,
-     end_date: frontendEvent.endDate,
+     start_date: toIsoZ(frontendEvent.startDate),
+     end_date: toIsoZ(frontendEvent.endDate),
      all_day: frontendEvent.allDay,
      status: STATUS_MAP_TO_DB[frontendEvent.status] || 'scheduled',
      location: frontendEvent.location,

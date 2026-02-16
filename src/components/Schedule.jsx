@@ -5,9 +5,17 @@ import { EVENT_STATUS } from '../utils/constants';
 
 const formatTimeRange = (start, end) => {
   if (!start || !end) return null;
-  const options = { hour: '2-digit', minute: '2-digit' };
-  const startTime = new Date(start).toLocaleTimeString([], options);
-  const endTime = new Date(end).toLocaleTimeString([], options);
+  const toLocal = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
+    if (m) {
+      const [, Y, M, D, h, mm] = m.map((v, i) => (i ? parseInt(v, 10) : v));
+      return new Date(Y, M - 1, D, h, mm);
+    }
+    return new Date(s);
+  };
+  const opts = { hour: '2-digit', minute: '2-digit' };
+  const startTime = toLocal(start).toLocaleTimeString([], opts);
+  const endTime = toLocal(end).toLocaleTimeString([], opts);
   return `${startTime} - ${endTime}`;
 };
 
