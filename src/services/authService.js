@@ -24,8 +24,21 @@ const writeSession = (user) => {
 export const authService = {
   getSession: async () => {
     const stored = readSession();
-    if (stored) return stored;
-    return null;
+    if (!stored || !stored.user || !stored.user.id) return null;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', stored.user.id)
+        .maybeSingle();
+      if (error || !data) {
+        return stored;
+      }
+      const session = writeSession(data);
+      return session;
+    } catch {
+      return stored;
+    }
   },
 
   signIn: async (identifier, password) => {

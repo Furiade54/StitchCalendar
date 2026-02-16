@@ -178,6 +178,15 @@ const UserProfilePage = () => {
     }
   };
 
+  const getMemberSinceLabel = () => {
+    if (!user) return null;
+    const source = user.created_at;
+    if (!source) return null;
+    const d = new Date(source);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  };
+
   return (
     <div className="flex h-screen w-full flex-col bg-background-light dark:bg-background-dark overflow-hidden">
       {/* Header */}
@@ -358,7 +367,7 @@ const UserProfilePage = () => {
                 <div>
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Miembro desde</p>
                   <p className="text-slate-900 dark:text-white font-medium">
-                    {new Date(user.created_at).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                    {getMemberSinceLabel() || '—'}
                   </p>
                 </div>
               </div>
