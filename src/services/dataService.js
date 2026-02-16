@@ -54,6 +54,10 @@ const mapEventFromSupabase = (dbEvent) => {
     user_id: dbEvent.user_id,
     shared_with: sharedWith,
     created_by: dbEvent.created_by,
+    isRecurring: dbEvent.is_recurring || false,
+    recurrencePattern: dbEvent.recurrence_pattern || null,
+    notes: dbEvent.notes,
+    meetingUrl: dbEvent.meeting_url,
     
     // Relational Data (Hydrated)
     event_type_id: dbEvent.event_type_id,
@@ -68,7 +72,9 @@ const mapEventFromSupabase = (dbEvent) => {
       id: owner.id,
       full_name: owner.full_name,
       avatar_url: owner.avatar_url,
-      username: owner.username
+      username: owner.username,
+      family_id: owner.family_id,
+      allowed_editors: owner.allowed_editors
     } : null
   };
 };
@@ -86,8 +92,69 @@ const mapEventToSupabase = (frontendEvent, userId) => {
      location: frontendEvent.location,
      user_id: userId, // Ensure ownership
      event_type_id: frontendEvent.event_type_id,
-     is_family_shared: sharedWith.includes('family')
+     is_family_shared: sharedWith.includes('family'),
+     is_recurring: frontendEvent.isRecurring || false,
+     recurrence_pattern: frontendEvent.recurrencePattern || null,
+     notes: frontendEvent.notes,
+     meeting_url: frontendEvent.meetingUrl,
+     color_class: frontendEvent.colorClass,
+     icon_bg_class: frontendEvent.iconBgClass,
+     icon: frontendEvent.icon
    };
+};
+
+// Expand recurring events into concrete occurrences within a date range (frontend-only recurrence)
+const expandRecurringEvents = (events, rangeStart, rangeEnd) => {
+  if (!rangeStart || !rangeEnd) return events;
+  const out = [];
+
+  const addInterval = (date, pattern) => {
+    const d = new Date(date);
+    if (pattern === 'daily') d.setDate(d.getDate() + 1);
+    else if (pattern === 'weekly') d.setDate(d.getDate() + 7);
+    else if (pattern === 'monthly') d.setMonth(d.getMonth() + 1);
+    else if (pattern === 'yearly') d.setFullYear(d.getFullYear() + 1);
+    return d;
+  };
+
+  events.forEach(ev => {
+    if (!ev.isRecurring || !ev.recurrencePattern) {
+      out.push(ev);
+      return;
+    }
+
+    const baseStart = new Date(ev.startDate);
+    const baseEnd = new Date(ev.endDate);
+    if (isNaN(baseStart) || isNaN(baseEnd)) {
+      out.push(ev);
+      return;
+    }
+
+    let currentStart = new Date(baseStart);
+    let currentEnd = new Date(baseEnd);
+    let safety = 0;
+
+    while (currentEnd < rangeStart && safety < 1000) {
+      currentStart = addInterval(currentStart, ev.recurrencePattern);
+      currentEnd = addInterval(currentEnd, ev.recurrencePattern);
+      safety += 1;
+    }
+
+    while (currentStart <= rangeEnd && safety < 2000) {
+      if (currentEnd >= rangeStart) {
+        out.push({
+          ...ev,
+          startDate: currentStart.toISOString(),
+          endDate: currentEnd.toISOString()
+        });
+      }
+      currentStart = addInterval(currentStart, ev.recurrencePattern);
+      currentEnd = addInterval(currentEnd, ev.recurrencePattern);
+      safety += 1;
+    }
+  });
+
+  return out;
 };
 
 export const dataService = {
@@ -370,7 +437,7 @@ export const dataService = {
         return true;
   },
 
-  getSchedule: async (day, currentDate) => {
+  getSchedule: async (day, currentDate, viewerId) => {
         let query = supabase
             .from('events')
             .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
@@ -396,7 +463,56 @@ export const dataService = {
         
         const { data, error } = await query;
         if (error) throw error;
-        const events = data.map(mapEventFromSupabase);
+        let events = data.map(mapEventFromSupabase);
+        if (viewerId) {
+            const { data: viewer, error: vErr } = await supabase
+              .from('profiles')
+              .select('id,family_id')
+              .eq('id', viewerId)
+              .maybeSingle();
+            const familyId = vErr ? null : viewer?.family_id || null;
+            events = events.filter(e => {
+              const sharedIds = Array.isArray(e.shared_with) ? e.shared_with : [];
+              const ownerEditors = Array.isArray(e.owner?.allowed_editors) ? e.owner.allowed_editors : [];
+              const famOk = e.shared_with?.includes('family') && e.owner?.family_id && familyId && e.owner.family_id === familyId;
+              return e.user_id === viewerId || sharedIds.includes(viewerId) || famOk || ownerEditors.includes(viewerId);
+            });
+        }
+
+        const rangeStart = (() => {
+            if (day && currentDate) {
+                const d = new Date(currentDate);
+                d.setDate(day);
+                d.setHours(0,0,0,0);
+                return d;
+            }
+            if (currentDate) {
+                const d = new Date(currentDate);
+                d.setHours(0,0,0,0);
+                return d;
+            }
+            return null;
+        })();
+        const rangeEnd = (() => {
+            if (day && currentDate) {
+                const d = new Date(currentDate);
+                d.setDate(day);
+                d.setHours(23,59,59,999);
+                return d;
+            }
+            if (currentDate) {
+                const d = new Date(currentDate);
+                d.setMonth(d.getMonth() + 1);
+                d.setDate(0);
+                d.setHours(23,59,59,999);
+                return d;
+            }
+            return null;
+        })();
+
+        if (rangeStart && rangeEnd) {
+            events = expandRecurringEvents(events, rangeStart, rangeEnd);
+        }
 
         if (!day && currentDate) {
             const today = new Date();
@@ -423,7 +539,7 @@ export const dataService = {
         return events;
   },
 
-  getEventById: async (eventId) => {
+  getEventById: async (eventId, viewerId = null) => {
         const { data, error } = await supabase
             .from('events')
             .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
@@ -431,7 +547,21 @@ export const dataService = {
             .single();
             
         if (error) throw error;
-        return mapEventFromSupabase(data);
+        const ev = mapEventFromSupabase(data);
+        if (viewerId) {
+            const { data: viewer, error: vErr } = await supabase
+              .from('profiles')
+              .select('id,family_id')
+              .eq('id', viewerId)
+              .maybeSingle();
+            const familyId = vErr ? null : viewer?.family_id || null;
+            const sharedIds = Array.isArray(ev.shared_with) ? ev.shared_with : [];
+            const ownerEditors = Array.isArray(ev.owner?.allowed_editors) ? ev.owner.allowed_editors : [];
+            const famOk = ev.shared_with?.includes('family') && ev.owner?.family_id && familyId && ev.owner.family_id === familyId;
+            const visible = ev.user_id === viewerId || sharedIds.includes(viewerId) || famOk || ownerEditors.includes(viewerId);
+            if (!visible) throw new Error('Event not found or access denied');
+        }
+        return ev;
   },
 
   updateEventStatus: async (eventId, newStatus) => {
@@ -701,7 +831,7 @@ export const dataService = {
         return mapEventFromSupabase(data);
   },
 
-  getCalendarDays: async (year, month) => {
+  getCalendarDays: async (year, month, viewerId) => {
         // Calculate range
         const startOfMonth = new Date(year, month, 1);
         const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
@@ -714,8 +844,24 @@ export const dataService = {
             .lte('start_date', endOfMonth.toISOString());
             
         if (error) throw error;
-        
-        const hydratedEvents = monthEvents.map(mapEventFromSupabase);
+        let mapped = monthEvents.map(mapEventFromSupabase);
+        if (viewerId) {
+            const { data: viewer, error: vErr } = await supabase
+              .from('profiles')
+              .select('id,family_id')
+              .eq('id', viewerId)
+              .maybeSingle();
+            const familyId = vErr ? null : viewer?.family_id || null;
+            mapped = mapped.filter(e => {
+              const sharedIds = Array.isArray(e.shared_with) ? e.shared_with : [];
+              const ownerEditors = Array.isArray(e.owner?.allowed_editors) ? e.owner.allowed_editors : [];
+              const famOk = e.shared_with?.includes('family') && e.owner?.family_id && familyId && e.owner.family_id === familyId;
+              return e.user_id === viewerId || sharedIds.includes(viewerId) || famOk || ownerEditors.includes(viewerId);
+            });
+        }
+        const startRange = new Date(year, month, 1, 0, 0, 0, 0);
+        const endRange = new Date(year, month + 1, 0, 23, 59, 59, 999);
+        const hydratedEvents = expandRecurringEvents(mapped, startRange, endRange);
 
         // Grid Generation Logic
         const days = [];
@@ -850,7 +996,23 @@ export const dataService = {
 
             const { data, error } = await query;
             if (error) throw error;
-            events = data.map(mapEventFromSupabase);
+            const mapped = data.map(mapEventFromSupabase);
+            if (userId) {
+                const { data: viewer, error: vErr } = await supabase
+                  .from('profiles')
+                  .select('id,family_id')
+                  .eq('id', userId)
+                  .maybeSingle();
+                const familyId = vErr ? null : viewer?.family_id || null;
+                events = mapped.filter(e => {
+                  const sharedIds = Array.isArray(e.shared_with) ? e.shared_with : [];
+                  const ownerEditors = Array.isArray(e.owner?.allowed_editors) ? e.owner.allowed_editors : [];
+                  const famOk = e.shared_with?.includes('family') && e.owner?.family_id && familyId && e.owner.family_id === familyId;
+                  return e.user_id === userId || sharedIds.includes(userId) || famOk || ownerEditors.includes(userId);
+                });
+            } else {
+                events = mapped;
+            }
         }
         
         return events;
