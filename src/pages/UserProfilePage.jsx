@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../context/FeedbackContext';
 import { dataService } from '../services/dataService';
 import { storageService } from '../services/storageService';
+import { COUNTRIES, COUNTRY_NAME_BY_CODE } from '../utils/countries';
 
 const UserProfilePage = () => {
   const { user, signOut, updateUser } = useAuth();
@@ -15,11 +16,13 @@ const UserProfilePage = () => {
   const [imgError, setImgError] = useState(false);
   const fileInputRef = React.useRef(null);
   const [stats, setStats] = useState({ completedTasks: 0, upcomingEvents: 0 });
+  const [tempAvatarPath, setTempAvatarPath] = useState(null);
   const [formData, setFormData] = useState({
     full_name: '',
     username: '',
     email: '',
     avatar_url: '',
+    country: '',
     password: '',
     confirmPassword: '',
     currentPassword: ''
@@ -28,11 +31,17 @@ const UserProfilePage = () => {
   // Update form data when user changes, but only if not editing to avoid overwriting inputs
   useEffect(() => {
     if (user && !isEditing) {
+      let avatarCandidate = user.avatar_url || '';
+      if (avatarCandidate && !avatarCandidate.startsWith('http') && avatarCandidate.includes('/')) {
+        const maybe = storageService.getPublicUrl(avatarCandidate);
+        if (maybe) avatarCandidate = maybe;
+      }
       setFormData({
         full_name: user.full_name || '',
         username: user.username || '',
         email: user.email || '',
-        avatar_url: user.avatar_url || '',
+        avatar_url: avatarCandidate || '',
+        country: user.country || '',
         password: '',
         confirmPassword: '',
         currentPassword: ''
@@ -98,8 +107,17 @@ const UserProfilePage = () => {
         // No password fields touched
         delete updates.password;
       }
-      
+      const prevUrl = user?.avatar_url || null;
       await updateUser(updates, currentPass);
+      if (tempAvatarPath && prevUrl) {
+        const prevPath = prevUrl.startsWith('http')
+          ? storageService.extractPathFromPublicUrl(prevUrl)
+          : prevUrl;
+        if (prevPath && prevPath !== tempAvatarPath) {
+          storageService.deleteFile(prevPath).catch(() => {});
+        }
+      }
+      setTempAvatarPath(null);
       setIsEditing(false);
       // Clear password fields after save
       setFormData(prev => ({ ...prev, password: '', confirmPassword: '', currentPassword: '' }));
@@ -114,12 +132,17 @@ const UserProfilePage = () => {
 
   const handleCancel = () => {
     setIsEditing(false);
+    if (tempAvatarPath) {
+      storageService.deleteFile(tempAvatarPath).catch(() => {});
+      setTempAvatarPath(null);
+    }
     // Reset form data
     setFormData({
       full_name: user.full_name || '',
       username: user.username || '',
       email: user.email || '',
       avatar_url: user.avatar_url || '',
+      country: user.country || '',
       password: '',
       confirmPassword: '',
       currentPassword: ''
@@ -162,9 +185,10 @@ const UserProfilePage = () => {
     setUploading(true);
     setImgError(false);
     try {
-      const publicUrl = await storageService.uploadFile(file, `avatars/${user.id}`);
+      const { publicUrl, path } = await storageService.uploadAvatar(file, user.id);
       console.log('Avatar uploaded, public URL:', publicUrl);
       setFormData(prev => ({ ...prev, avatar_url: publicUrl }));
+      setTempAvatarPath(path);
       showAlert('Imagen subida correctamente', 'Éxito', 'success');
     } catch (error) {
       console.error('Error uploading avatar:', error);
@@ -177,6 +201,14 @@ const UserProfilePage = () => {
       }
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (tempAvatarPath) {
+        storageService.deleteFile(tempAvatarPath).catch(() => {});
+      }
+    };
+  }, [tempAvatarPath]);
 
   const getMemberSinceLabel = () => {
     if (!user) return null;
@@ -227,7 +259,7 @@ const UserProfilePage = () => {
                   alt={formData.full_name} 
                   className="w-full h-full object-cover" 
                   onError={(e) => {
-                    console.error('Error loading avatar image:', formData.avatar_url, e);
+                    console.error('[PROFILE_AVATAR] Image load FAILED', { url: formData.avatar_url, error: e?.message });
                     setImgError(true);
                   }}
                 />
@@ -309,6 +341,34 @@ const UserProfilePage = () => {
                     />
                   ) : (
                     <p className="text-slate-900 dark:text-white font-medium">{user.email}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 mb-4">
+                <div className="size-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
+                  <span className="material-symbols-outlined">public</span>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">País</p>
+                  {isEditing ? (
+                    <select
+                      name="country"
+                      value={formData.country}
+                      onChange={handleChange}
+                      className="w-full mt-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg text-slate-900 dark:text-white font-medium border-none focus:ring-2 focus:ring-primary text-sm"
+                    >
+                      <option value="">Selecciona un país</option>
+                      {COUNTRIES.map(c => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-slate-900 dark:text-white font-medium">
+                      {COUNTRY_NAME_BY_CODE[user.country] || '—'}
+                    </p>
                   )}
                 </div>
               </div>

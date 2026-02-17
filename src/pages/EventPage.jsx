@@ -364,11 +364,21 @@ const EventPage = () => {
     );
   }
 
+  const parseEventDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string') {
+      const hasT = value.includes('T');
+      const normalized = hasT ? value : value.replace(' ', 'T');
+      return new Date(normalized);
+    }
+    return new Date(value);
+  };
+
   // Helper to format date for display
   const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(dateString);
-    const d = m ? new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10), parseInt(m[4],10), parseInt(m[5],10)) : new Date(dateString);
+    const d = parseEventDate(dateString);
+    if (!d || Number.isNaN(d.getTime())) return '';
     return d.toLocaleDateString('es-ES', { 
       weekday: 'long', 
       year: 'numeric', 
@@ -379,13 +389,9 @@ const EventPage = () => {
 
   const formatTimeRange = (start, end) => {
     if (!start || !end) return '';
-    const toLocal = (s) => {
-      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
-      if (m) return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10), parseInt(m[4],10), parseInt(m[5],10));
-      return new Date(s);
-    };
-    const s = toLocal(start);
-    const e = toLocal(end);
+    const s = parseEventDate(start);
+    const e = parseEventDate(end);
+    if (!s || !e || Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return '';
     return `${s.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${e.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
   };
 

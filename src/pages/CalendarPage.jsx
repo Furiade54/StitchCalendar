@@ -70,6 +70,8 @@ function CalendarPage() {
     return null;
   });
 
+  const [selectedHolidayNames, setSelectedHolidayNames] = useState([]);
+
   const [currentDate, setCurrentDate] = useState(() => {
     const saved = sessionStorage.getItem('calendarState');
     if (saved) {
@@ -158,12 +160,15 @@ function CalendarPage() {
     });
   };
 
-  const handleDaySelect = (day) => {
+  const handleDaySelect = (dayOrMeta) => {
+    const day = typeof dayOrMeta === 'number' ? dayOrMeta : dayOrMeta?.day;
+    const holidayNames = typeof dayOrMeta === 'number' ? [] : (dayOrMeta?.holidayNames || []);
     if (selectedDay === day) {
       // Second tap on already selected day -> Open Events Modal
       setIsEventModalOpen(true);
     } else {
       setSelectedDay(day);
+      setSelectedHolidayNames(holidayNames);
     }
   };
 
@@ -243,7 +248,11 @@ function CalendarPage() {
             currentDate={currentDate}
             onEventSelect={handleEventSelect}
             userId={currentUserId}
-            onClearSelection={() => setSelectedDay(null)}
+            holidayNames={selectedHolidayNames}
+            onClearSelection={() => {
+              setSelectedDay(null);
+              setSelectedHolidayNames([]);
+            }}
           />
         </div>
         <div className="h-8"></div>

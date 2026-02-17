@@ -54,6 +54,8 @@ const Calendar = ({ selectedDay, onDaySelect, currentDate, onNextMonth, onPrevMo
               isGhost={dayObj.isGhost}
               isSelected={!dayObj.isGhost && dayObj.day === selectedDay}
               isToday={dayObj.isToday}
+              isHoliday={dayObj.isHoliday}
+              holidayNames={dayObj.holidayNames}
               indicators={dayObj.indicators}
               onClick={() => {
                 if (dayObj.isPrevMonth) {
@@ -61,7 +63,7 @@ const Calendar = ({ selectedDay, onDaySelect, currentDate, onNextMonth, onPrevMo
                 } else if (dayObj.isNextMonth) {
                   onNextMonth(dayObj.day);
                 } else {
-                  onDaySelect(dayObj.day);
+                  onDaySelect(dayObj);
                 }
               }}
             />

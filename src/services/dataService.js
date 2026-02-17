@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import Holidays from 'date-holidays';
 import { DEFAULT_EVENT_TYPES, EVENT_STATUS, EVENT_TYPES } from '../utils/constants';
 
 const STATUS_MAP_TO_DB = {
@@ -177,7 +178,7 @@ export const dataService = {
     checkAndMarkOverdue: async (userId) => {
         try {
             const now = new Date().toISOString();
-            
+
             // Fetch candidates: Scheduled, Overdue, or Pending events in the past
             // We run two queries to handle cases with and without end_date
             const query1 = supabase
@@ -860,13 +861,15 @@ export const dataService = {
             
         if (error) throw error;
         let mapped = monthEvents.map(mapEventFromSupabase);
+        let viewerCountry = null;
         if (viewerId) {
             const { data: viewer, error: vErr } = await supabase
               .from('profiles')
-              .select('id,family_id')
+              .select('id,family_id,country')
               .eq('id', viewerId)
               .maybeSingle();
             const familyId = vErr ? null : viewer?.family_id || null;
+            viewerCountry = (viewer?.country || '').toString().trim().toUpperCase() || null;
             mapped = mapped.filter(e => {
               const sharedIds = Array.isArray(e.shared_with) ? e.shared_with : [];
               const ownerEditors = Array.isArray(e.owner?.allowed_editors) ? e.owner.allowed_editors : [];
@@ -877,6 +880,32 @@ export const dataService = {
         const startRange = new Date(year, month, 1, 0, 0, 0, 0);
         const endRange = new Date(year, month + 1, 0, 23, 59, 59, 999);
         const hydratedEvents = expandRecurringEvents(mapped, startRange, endRange);
+
+        let holidayDaySet = new Set();
+        const holidayNamesByDay = {};
+        if (viewerCountry && viewerCountry.length === 2) {
+          try {
+            const hd = new Holidays(viewerCountry);
+            const holidaysYear = hd.getHolidays(year) || [];
+            const monthIdx = month + 1;
+            for (const h of holidaysYear) {
+              if (!h || !h.date) continue;
+              const d = new Date(h.date);
+              if (Number.isNaN(d.getTime())) continue;
+              if ((d.getMonth() + 1) === monthIdx && d.getFullYear() === year) {
+                const dayNum = d.getDate();
+                holidayDaySet.add(dayNum);
+                if (!holidayNamesByDay[dayNum]) holidayNamesByDay[dayNum] = [];
+                if (h.name && !holidayNamesByDay[dayNum].includes(h.name)) {
+                  holidayNamesByDay[dayNum].push(h.name);
+                }
+              }
+            }
+            console.log(hd.getHolidays(year));
+          } catch {
+            holidayDaySet = new Set();
+          }
+        }
 
         // Grid Generation Logic
         const days = [];
@@ -895,6 +924,8 @@ export const dataService = {
 
         for (let i = 1; i <= daysInMonth; i++) {
             const isToday = isSameMonth && i === today.getDate();
+            const isHoliday = holidayDaySet.has(i);
+            const holidayNames = holidayNamesByDay[i] || [];
 
             // Filter events for this day from the fetched batch
             const dayEvents = hydratedEvents.filter(e => {
@@ -917,7 +948,7 @@ export const dataService = {
             
             if (indicators.length > 3) indicators = indicators.slice(0, 3);
 
-            days.push({ day: i, isCurrentMonth: true, indicators, isToday });
+            days.push({ day: i, isCurrentMonth: true, indicators, isToday, isHoliday, holidayNames });
         }
 
         // Next month days
@@ -940,85 +971,61 @@ export const dataService = {
         }
 
         try {
-            // Optimization: Use RPC to get all stats in one DB call
-            const { data, error } = await supabase.rpc('get_user_stats', { target_user_id: userId });
+            const completedEvents = await dataService.getCompletedEvents(userId);
 
-            if (error) throw error;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayIso = today.toISOString();
+
+            const { count: upcomingCount, error: upcomingError } = await supabase
+                  .from('events')
+                  .select('id', { count: 'exact', head: true })
+                  .neq('status', 'cancelled')
+                  .neq('status', 'completed')
+                  .neq('status', 'overdue')
+                  .gte('start_date', todayIso);
+
+            const isAbort = (err) => {
+                if (!err) return false;
+                const msg = (err.message || '').toLowerCase();
+                return err.name === 'AbortError' || msg.includes('abort') || err.code === 'PGRST116';
+            };
+
+            const completed = Array.isArray(completedEvents) ? completedEvents.length : 0;
+            const upcoming = isAbort(upcomingError) ? 0 : (upcomingCount || 0);
 
             return {
-              completedTasks: data.completedTasks || 0,
-              upcomingEvents: data.upcomingEvents || 0
+                completedTasks: completed,
+                upcomingEvents: upcoming
             };
-        } catch (err) {
-            console.warn("RPC get_user_stats failed, falling back to legacy queries:", err.message);
-            // Fallback to client-side counting (Legacy)
-            try {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const todayIso = today.toISOString();
-
-                const [resultCompleted, resultUpcoming] = await Promise.all([
-                    // Contar eventos visibles por RLS (propios o compartidos)
-                    supabase.from('events').select('id', { count: 'exact', head: true }).in('status', ['completed', 'overdue']),
-                    supabase.from('events').select('id', { count: 'exact', head: true }).neq('status', 'cancelled').neq('status', 'completed').neq('status', 'overdue').gte('start_date', todayIso)
-                ]);
-                
-                const isAbort = (err) => {
-                    if (!err) return false;
-                    const msg = (err.message || '').toLowerCase();
-                    return err.name === 'AbortError' || msg.includes('abort') || err.code === 'PGRST116';
-                };
-                
-                const completed = isAbort(resultCompleted.error) ? 0 : (resultCompleted.count || 0);
-                const upcoming = isAbort(resultUpcoming.error) ? 0 : (resultUpcoming.count || 0);
-                
-                return {
-                    completedTasks: completed,
-                    upcomingEvents: upcoming
-                };
-            } catch (fallbackErr) {
-                return { completedTasks: 0, upcomingEvents: 0 };
-            }
+        } catch (fallbackErr) {
+            return { completedTasks: 0, upcomingEvents: 0 };
         }
   },
 
   getCompletedEvents: async (userId) => {
         let events = [];
         try {
-            // 1. Try fetching via RPC (New Per-User Status Logic)
-            const { data: rpcData, error: rpcError } = await supabase.rpc('get_events_with_status_json', {
-                 target_user_id: userId,
-                 filter_type: 'completed'
-            });
-
-            if (rpcError) throw rpcError;
-            events = rpcData.map(mapEventFromSupabase);
-
-        } catch (err) {
-             console.warn("RPC get_events_with_status_json failed (completed), fallback to legacy:", err.message);
-             // Fallback
-             let query = supabase
+            const query = supabase
                 .from('events')
                 .select('*, event_types(*), profiles!events_user_id_fkey(*), event_shares(user_id)')
-                .in('status', ['completed', 'overdue'])
+                .in('status', ['completed', 'overdue', 'cancelled'])
                 .order('start_date', { ascending: false });
-
-            // We rely on RLS to filter visible events (Owner OR Shared OR Family)
-            // Explicitly filtering by user_id would hide shared events where I am not the owner.
-            // if (userId) {
-            //     query = query.eq('user_id', userId);
-            // }
 
             const { data, error } = await query;
             if (error) throw error;
+
             const mapped = data.map(mapEventFromSupabase);
+
             if (userId) {
                 const { data: viewer, error: vErr } = await supabase
                   .from('profiles')
                   .select('id,family_id')
                   .eq('id', userId)
                   .maybeSingle();
+
                 const familyId = vErr ? null : viewer?.family_id || null;
+
                 events = mapped.filter(e => {
                   const sharedIds = Array.isArray(e.shared_with) ? e.shared_with : [];
                   const ownerEditors = Array.isArray(e.owner?.allowed_editors) ? e.owner.allowed_editors : [];
@@ -1028,8 +1035,10 @@ export const dataService = {
             } else {
                 events = mapped;
             }
+        } catch (err) {
+            console.error("Error fetching completed events:", err);
         }
-        
+
         return events;
   },
 

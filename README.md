@@ -2,7 +2,7 @@
 
 Una aplicación de calendario mensual moderna y reactiva construida con **React**, **Vite** y **Tailwind CSS**.
 
-Esta aplicación ha sido refactorizada para seguir las mejores prácticas de arquitectura de software, separando la lógica de presentación de la lógica de datos, y está preparada para una futura integración con **Supabase** y **Row Level Security (RLS)**.
+Esta aplicación sigue buenas prácticas de arquitectura (presentación vs datos) y está integrada con **Supabase** (PostgreSQL y Storage), con diseño de políticas **Row Level Security (RLS)**.
 
 ## 🚀 Características
 
@@ -10,19 +10,20 @@ Esta aplicación ha sido refactorizada para seguir las mejores prácticas de arq
 *   **Modo Oscuro/Claro**: Soporte nativo para temas claros y oscuros (basado en preferencias del sistema o configuración manual).
 *   **Arquitectura Modular**: Componentes UI reutilizables y aislados.
 *   **Enrutamiento**: Navegación completa entre vistas usando React Router.
-*   **Capa de Datos Asíncrona**: Simulación de llamadas a API (preparada para backend real).
+*   **Capa de Datos con Supabase**: Persistencia real de eventos, tipos, perfiles, notificaciones y compartidos.
 *   **Hooks Personalizados**: Lógica de obtención de datos encapsulada en hooks de React.
 *   **Loading States**: Indicadores visuales de carga (esqueletos) para mejorar la experiencia de usuario.
-*   **Autenticación Simulada**: Sistema de login multi-usuario preparado para Supabase Auth.
+*   **Autenticación Base**: Inicio de sesión y registro sobre la tabla `profiles` (sesión local), con preparación para migrar a Supabase Auth.
 
 ## 🛠️ Stack Tecnológico
 
-*   **Frontend**: React 18
-*   **Routing**: React Router Dom v6
+*   **Frontend**: React 19
+*   **Routing**: React Router Dom v7
 *   **Build Tool**: Vite
 *   **Estilos**: Tailwind CSS v4
 *   **Iconos**: Material Symbols Outlined (Google Fonts)
 *   **Validación de Tipos**: PropTypes
+*   **Backend as a Service**: Supabase (PostgreSQL, Storage) vía `@supabase/supabase-js` v2
 
 ## 📂 Estructura del Proyecto
 
@@ -43,13 +44,16 @@ src/
 ├── hooks/             # Custom Hooks para lógica de negocio
 │   ├── useCalendar.js     # Lógica para obtener datos del calendario
 │   ├── useSchedule.js     # Lógica para obtener eventos
-│   └── useAuth.js         # Hook de autenticación
-├── services/          # Capa de servicio para comunicación con API
-│   └── dataService.js     # Simula llamadas a BD (punto de integración para Supabase)
+│   └── useTheme.js        # Gestión de tema claro/oscuro
+├── lib/
+│   └── supabase.js        # Cliente de Supabase inicializado
+├── services/          # Capa de servicio para comunicación con la BD
+│   ├── dataService.js     # Acceso a eventos, tipos, notificaciones, familias (Supabase)
+│   ├── authService.js     # Sesión local y flujo de usuario en `profiles`
+│   └── storageService.js  # Subidas y borrados en Supabase Storage
 ├── context/           # Contextos de React
-│   └── AuthContext.jsx    # Estado global de autenticación
-├── data/              # Datos estáticos y tipos
-│   └── mockData.js        # Datos de prueba iniciales
+│   ├── AuthContext.jsx    # Estado global de autenticación
+│   └── FeedbackContext.jsx# Alertas y notificaciones UX
 └── ...
 ```
 
@@ -70,51 +74,22 @@ src/
     npm run build
     ```
 
-## 🔮 Preparación para Supabase
+## � Integración con Supabase
 
-La aplicación está diseñada para migrar fácilmente a Supabase u otro backend.
+La app usa Supabase para almacenamiento de datos (PostgreSQL) y archivos (Storage). Configura un archivo `.env` en la raíz con:
 
-**Autenticación y Seguridad (Future-Proof):**
+```bash
+VITE_SUPABASE_URL=tu_url_de_supabase
+VITE_SUPABASE_ANON_KEY=tu_anon_key
+# Opcional (bucket para storage; por defecto: StitchCalendar)
+VITE_SUPABASE_STORAGE_BUCKET=StitchCalendar
+```
 
-*   **LoginScreen**: Actualmente filtra usuarios inactivos en el cliente. En producción, esto se reemplaza por el flujo de autenticación de Supabase (OAuth/Email), donde los usuarios inactivos son bloqueados a nivel de servidor.
-*   **DataService**: Las funciones reciben `userId` para simular filtrado. En el futuro, esto se manejará mediante **RLS (Row Level Security)** en PostgreSQL, donde `auth.uid()` determina automáticamente el acceso a los datos sin necesidad de pasar el ID explícitamente desde el cliente.
+Puntos clave:
 
-### Esquema de Base de Datos y RLS
+*   **Datos**: `services/dataService.js` realiza `select/insert/update/delete` contra tablas como `events`, `event_types`, `profiles`, `notifications` y `event_shares`.
+*   **Storage**: `services/storageService.js` sube/borra archivos en el bucket configurado.
+*   **Autenticación**: `services/authService.js` gestiona sesión local basada en la tabla `profiles`. Se puede migrar a Supabase Auth sin romper la UI.
+*   **RLS**: El diseño contempla políticas por usuario (p.ej., `events.user_id`) para asegurar acceso por propietario y compartidos.
 
-Se han incluido archivos de migración SQL en la carpeta `supabase/migrations/` que definen la estructura de la base de datos y las políticas de seguridad:
-
-1.  **`profiles`**: Tabla de usuarios con datos extendidos.
-    *   *RLS*: Pública para lectura (encontrar colegas), pero solo editable por el propio usuario.
-2.  **`events`**: Tabla de eventos del calendario.
-    *   *RLS*: Estrictamente privada.
-    *   `select`: Solo el dueño puede ver sus eventos (`auth.uid() = user_id`).
-    *   `insert/update/delete`: Solo el dueño puede modificar sus eventos.
-
-Esto asegura que incluso si un usuario malintencionado intenta acceder a la API, la base de datos rechazará cualquier petición que no corresponda a su usuario autenticado.
-
-**Pasos para migrar:**
-
-1.  Instalar el cliente de Supabase: `npm install @supabase/supabase-js`
-2.  Configurar el cliente en un archivo `src/services/supabaseClient.js`.
-3.  Modificar `src/services/dataService.js` para reemplazar la simulación (`setTimeout`) con llamadas reales:
-
-    ```javascript
-    // src/services/dataService.js (Ejemplo futuro)
-    import { supabase } from './supabaseClient';
-
-    export const dataService = {
-      getSchedule: async (day) => {
-        // userId no es necesario pasarlo, Supabase usa el token de sesión
-        const { data, error } = await supabase
-          .from('events')
-          .select('*')
-          .eq('day', day);
-          
-        if (error) throw error;
-        return data;
-      },
-      // ...
-    };
-    ```
-
-Los componentes (`Schedule.jsx`, `Calendar.jsx`) **NO** necesitarán cambios significativos, ya que consumen los datos a través de los hooks y el servicio, manteniendo la UI desacoplada del origen de datos.
+Con esta integración, la UI permanece desacoplada gracias a los hooks y la capa de servicios, permitiendo evolucionar el flujo de autenticación y las políticas RLS sin cambios grandes en componentes.

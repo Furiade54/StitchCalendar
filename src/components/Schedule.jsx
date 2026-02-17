@@ -3,23 +3,29 @@ import ScheduleItem from './ScheduleItem';
 import { useSchedule } from '../hooks/useSchedule';
 import { EVENT_STATUS } from '../utils/constants';
 
+const parseEventDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const hasT = value.includes('T');
+    const normalized = hasT ? value : value.replace(' ', 'T');
+    return new Date(normalized);
+  }
+  return new Date(value);
+};
+
 const formatTimeRange = (start, end) => {
   if (!start || !end) return null;
-  const toLocal = (s) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
-    if (m) {
-      const [, Y, M, D, h, mm] = m.map((v, i) => (i ? parseInt(v, 10) : v));
-      return new Date(Y, M - 1, D, h, mm);
-    }
-    return new Date(s);
-  };
   const opts = { hour: '2-digit', minute: '2-digit' };
-  const startTime = toLocal(start).toLocaleTimeString([], opts);
-  const endTime = toLocal(end).toLocaleTimeString([], opts);
+  const s = parseEventDate(start);
+  const e = parseEventDate(end);
+  if (!s || !e || Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  const startTime = s.toLocaleTimeString([], opts);
+  const endTime = e.toLocaleTimeString([], opts);
   return `${startTime} - ${endTime}`;
 };
 
-const Schedule = ({ selectedDay, currentDate, onEventSelect, refreshKey, userId, onClearSelection }) => {
+const Schedule = ({ selectedDay, currentDate, onEventSelect, refreshKey, userId, holidayNames = [], onClearSelection }) => {
   const { data: scheduleData, isLoading } = useSchedule(selectedDay, currentDate, refreshKey, userId);
 
   // Create a date object for the selected day to ensure correct formatting if needed,
@@ -35,7 +41,14 @@ const Schedule = ({ selectedDay, currentDate, onEventSelect, refreshKey, userId,
   return (
     <div className="px-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-primary">Agenda</h3>
+        <div>
+          <h3 className="text-lg font-bold text-primary">Agenda</h3>
+          {selectedDay && holidayNames && holidayNames.length > 0 && (
+            <p className="text-[11px] font-semibold text-emerald-600 mt-0.5">
+              Festivo: {holidayNames.join(', ')}
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {selectedDay && onClearSelection && (
              <button 

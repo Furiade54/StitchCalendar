@@ -62,6 +62,7 @@ export const authService = {
       avatar_url: userData.avatar_url || 'account_circle',
       username: userData.email.split('@')[0],
       password: userData.password,
+      country: userData.country || null,
       status: 'active'
     };
     const { data, error } = await supabase
@@ -90,6 +91,7 @@ export const authService = {
     if (updates.avatar_url) dbUpdates.avatar_url = updates.avatar_url;
     if (updates.email) dbUpdates.email = updates.email;
     if (updates.password) dbUpdates.password = updates.password;
+    if (Object.prototype.hasOwnProperty.call(updates, 'country')) dbUpdates.country = updates.country;
     if (updates.allowed_editors) dbUpdates.allowed_editors = updates.allowed_editors;
     const { data, error } = await supabase
       .from('profiles')

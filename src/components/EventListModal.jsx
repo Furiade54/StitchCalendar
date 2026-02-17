@@ -4,19 +4,25 @@ import ScheduleItem from './ScheduleItem';
 import { useSchedule } from '../hooks/useSchedule';
 import { EVENT_STATUS } from '../utils/constants';
 
+const parseEventDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const hasT = value.includes('T');
+    const normalized = hasT ? value : value.replace(' ', 'T');
+    return new Date(normalized);
+  }
+  return new Date(value);
+};
+
 const formatTimeRange = (start, end) => {
   if (!start || !end) return null;
-  const toLocal = (s) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s);
-    if (m) {
-      const [, Y, M, D, h, mm] = m.map((v, i) => (i ? parseInt(v, 10) : v));
-      return new Date(Y, M - 1, D, h, mm);
-    }
-    return new Date(s);
-  };
   const options = { hour: '2-digit', minute: '2-digit' };
-  const startTime = toLocal(start).toLocaleTimeString([], options);
-  const endTime = toLocal(end).toLocaleTimeString([], options);
+  const s = parseEventDate(start);
+  const e = parseEventDate(end);
+  if (!s || !e || Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  const startTime = s.toLocaleTimeString([], options);
+  const endTime = e.toLocaleTimeString([], options);
   return `${startTime} - ${endTime}`;
 };
 
