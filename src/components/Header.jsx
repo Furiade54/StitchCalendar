@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../context/AuthContext';
 import { dataService } from '../services/dataService';
@@ -46,67 +47,88 @@ const Header = ({ currentDate, onMenuClick, selectedMemberId, onMemberSelect, on
       </button>
       
       <div className="flex items-center gap-2">
-        {/* Family Selector Dropdown */}
         {(allMembers.length > 0) && (
-          <div className="relative mr-1">
-             <button 
-               onClick={() => setIsFamilyMenuOpen(!isFamilyMenuOpen)}
-               className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border border-transparent hover:bg-slate-100 dark:hover:bg-white/10 transition-all focus:outline-none active:scale-95 group"
-             >
-                <div className="relative size-[28px] flex items-center justify-center rounded-full overflow-hidden">
-                    {activeMember?.avatar_url && (activeMember.avatar_url.startsWith('http') || activeMember.avatar_url.startsWith('/')) ? (
-                        <img src={activeMember.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                        <span className="material-symbols-outlined text-primary text-[28px]">
-                            {activeMember?.avatar_url || 'account_circle'}
-                        </span>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full border border-slate-100 dark:border-slate-800 flex items-center justify-center size-4 shadow-sm z-10">
-                        <span className="material-symbols-outlined text-[10px] text-primary">expand_more</span>
-                    </div>
+          <>
+            <button 
+              onClick={() => setIsFamilyMenuOpen(true)}
+              className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border border-transparent hover:bg-slate-100 dark:hover:bg-white/10 transition-all focus:outline-none active:scale-95 group"
+            >
+              <div className="relative size-[28px] flex items-center justify-center rounded-full overflow-hidden">
+                {activeMember?.avatar_url && (activeMember.avatar_url.startsWith('http') || activeMember.avatar_url.startsWith('/')) ? (
+                  <img src={activeMember.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="material-symbols-outlined text-primary text-[28px]">
+                    {activeMember?.avatar_url || 'account_circle'}
+                  </span>
+                )}
+                <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full border border-slate-100 dark:border-slate-800 flex items-center justify-center size-4 shadow-sm z-10">
+                  <span className="material-symbols-outlined text-[10px] text-primary">expand_more</span>
                 </div>
-             </button>
+              </div>
+            </button>
 
-             {/* Dropdown Menu */}
-             {isFamilyMenuOpen && (
-               <>
-                 <div className="fixed inset-0 z-40" onClick={() => setIsFamilyMenuOpen(false)}></div>
-                 <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-surface-dark rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                    <div className="p-2 space-y-1 max-h-[300px] overflow-y-auto">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">Ver calendario de</p>
+            {isFamilyMenuOpen && typeof document !== 'undefined' &&
+              createPortal(
+                (
+                  <div 
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    onClick={() => setIsFamilyMenuOpen(false)}
+                  >
+                    <div 
+                      className="w-full max-w-sm bg-white dark:bg-surface-dark rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-scale-in"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="bg-primary/5 dark:bg-primary/10 px-5 py-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-700">
+                        <div>
+                          <h3 className="text-base font-bold text-primary">Ver calendario de</h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                            Selecciona el miembro cuyo calendario quieres ver
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => setIsFamilyMenuOpen(false)}
+                          className="size-9 rounded-full flex items-center justify-center bg-white dark:bg-slate-800 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shadow-sm"
+                        >
+                          <span className="material-symbols-outlined text-base">close</span>
+                        </button>
+                      </div>
+                      <div className="p-3 space-y-1 max-h-[320px] overflow-y-auto">
                         {allMembers.map(member => {
-                            const isSelected = selectedMemberId === member.id || (member.isMe && selectedMemberId === user?.id);
-                            return (
-                                <button
-                                    key={member.id}
-                                    onClick={() => handleMemberClick(member.id)}
-                                    className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${
-                                        isSelected 
-                                            ? 'bg-primary/10 text-primary' 
-                                            : 'hover:bg-slate-50 dark:hover:bg-white/5 text-slate-700 dark:text-slate-200'
-                                    }`}
-                                >
-                                    <div className="size-6 flex items-center justify-center rounded-full overflow-hidden flex-shrink-0">
-                                        {member.avatar_url && (member.avatar_url.startsWith('http') || member.avatar_url.startsWith('/')) ? (
-                                            <img src={member.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                                        ) : (
-                                            <span className="material-symbols-outlined text-2xl">
-                                                {member.avatar_url || 'account_circle'}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <span className="text-sm font-medium truncate flex-1 text-left">
-                                        {member.isMe ? 'Yo' : member.full_name.split(' ')[0]}
-                                    </span>
-                                    {isSelected && <span className="material-symbols-outlined text-sm">check</span>}
-                                </button>
-                            );
+                          const isSelected = selectedMemberId === member.id || (member.isMe && selectedMemberId === user?.id);
+                          return (
+                            <button
+                              key={member.id}
+                              onClick={() => handleMemberClick(member.id)}
+                              className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors ${
+                                isSelected 
+                                  ? 'bg-primary/10 text-primary' 
+                                  : 'hover:bg-slate-50 dark:hover:bg-white/5 text-slate-700 dark:text-slate-200'
+                              }`}
+                            >
+                              <div className="size-6 flex items-center justify-center rounded-full overflow-hidden flex-shrink-0">
+                                {member.avatar_url && (member.avatar_url.startsWith('http') || member.avatar_url.startsWith('/')) ? (
+                                  <img src={member.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="material-symbols-outlined text-2xl">
+                                    {member.avatar_url || 'account_circle'}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-sm font-medium truncate flex-1 text-left">
+                                {member.isMe ? 'Yo' : member.full_name.split(' ')[0]}
+                              </span>
+                              {isSelected && <span className="material-symbols-outlined text-sm">check</span>}
+                            </button>
+                          );
                         })}
+                      </div>
                     </div>
-                 </div>
-               </>
-             )}
-          </div>
+                  </div>
+                ),
+                document.body
+              )
+            }
+          </>
         )}
 
         <button 

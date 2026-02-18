@@ -24,7 +24,7 @@ const Calendar = ({ selectedDay, onDaySelect, currentDate, onNextMonth, onPrevMo
         aria-hidden="true"
       >
         <span
-          className="select-none text-[140px] font-extrabold text-sky-500/5 dark:text-sky-400/5"
+          className="select-none text-[140px] font-extrabold text-primary/5 dark:text-primary/15"
           style={{ transform: 'rotate(-45deg)' }}
         >
           {yearLabel}
